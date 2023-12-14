@@ -1,0 +1,27 @@
+#!/bin/bash
+#SBATCH --time=18:00:00
+#SBATCH --nodes=1
+#SBATCH --ntasks=16
+#SBATCH --out logcat.out
+
+cat SRR11950112_1.fastq SRR11950112_2.fastq > GSM4594635.fastq
+gzip GSM4594635.fastq
+rm SRR11950112_1.fastq
+rm SRR11950112_2.fastq
+
+#multiple
+
+#GSM748786
+declare -i run=299052
+#echo SRR${run}
+declare -a listGSM748786
+for ((i=1; i<=3; i++))
+do
+((run= run+1))
+listGSM748786+=(SRR${run}.fastq)
+done
+for t in ${listGSM748786[@]};
+do echo $t
+cat $t >> GSM748786.fastq
+done
+gzip GSM748786.fastq

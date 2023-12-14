@@ -1,0 +1,39 @@
+#!/bin/bash
+#SBATCH --time=24:00:00
+#SBATCH --nodes=1
+#SBATCH --ntasks=8
+#SBATCH --mem=10G
+#SBATCH --out logtrim.out
+
+
+#this script is used after chopping the data into 50 bp, for trimming adaptors and quality processing)
+source /hpc/local/CentOS7/uu_epigenetics/software/miniconda3/etc/profile.d/conda.sh
+conda activate trimgalore
+
+#the data folder
+data=/hpc/shared/uu_epigenetics/Amalia/wgbs/chopped_data/clumpified
+#the folder i want output
+cut_data=/hpc/shared/uu_epigenetics/Amalia/wgbs/trimgalore_data
+
+cd ${data}
+##################### Make describers #####################
+ls ${data}/*.fastq.gz  | xargs -n 1 basename | sed s/.fastq.gz// > ${cut_data}/describers.txt;
+#this makes a file holding the names of all my fastq files in the chopped_data folder and saves it in the new folder, where i will output my trimgallore processed data
+
+Samples=$(cat ${cut_data}/describers.txt);
+
+# modify and add --cores 4 next time for best performance
+##################### Trim Galore analysis #####################
+
+ for a_sample in $Samples; do
+         if [ -e "${cut_data}/${a_sample}_trimmed.fastq.gz" ]; then
+                 echo -e "The ${a_sample} is already trimmed \n "
+   else
+                 trim_galore --illumina --fastqc --gzip --stringency 1 --length 20 ${data}/${a_sample}.fastq.gz --output_dir ${cut_data};
+     echo -e   "The trimming for ${a_sample} is done \n "
+   fi
+ done;
+
+
+cd ${cut_data}
+multiqc *txt

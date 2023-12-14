@@ -1,0 +1,25 @@
+#!/bin/bash
+#SBATCH --time=24:00:00
+#SBATCH --nodes=1
+#SBATCH --ntasks=24
+#SBATCH --out log4.out
+
+source /hpc/local/CentOS7/uu_epigenetics/software/miniconda3/etc/profile.d/conda.sh
+conda activate trimgalore
+
+#to download from multiple SRR (299053-55)
+declare -i run=299052
+echo SRR${run}
+for ((i=1; i<=3; i++))
+do
+  ((run= run+1))
+  echo SRR$run
+  prefetch --max-size 100G SRR$run -O /hpc/shared/uu_epigenetics/Amalia/wgbs/raw_data
+  fasterq-dump /hpc/shared/uu_epigenetics/Amalia/wgbs/raw_data/SRR$run -O /hpc/shared/uu_epigenetics/Amalia/wgbs/raw_data --threads 24
+done
+
+#single SRR
+
+prefetch --max-size 100G SRR11950112 -O /hpc/shared/uu_epigenetics/Amalia/wgbs/raw_data
+
+fasterq-dump /hpc/shared/uu_epigenetics/Amalia/wgbs/raw_data/SRR11950112 -O /hpc/shared/uu_epigenetics/Amalia/wgbs/raw_data --threads 24

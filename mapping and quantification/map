@@ -1,0 +1,15 @@
+#!/bin/bash
+#SBATCH --time=48:00:00
+#SBATCH --nodes=1
+#SBATCH --mem=64G
+#SBATCH --ntasks=16
+#SBATCH --out logmapping_GSM1382256.out
+
+source /hpc/local/CentOS7/uu_epigenetics/software/miniconda3/etc/profile.d/conda.sh
+conda activate quasr
+Rscript=/hpc/local/CentOS7/uu_epigenetics/software/miniconda3/envs/quasr/bin/Rscript;
+
+#cd $TMPDIR the tempdir is always full
+export TMPDIR=/hpc/shared/uu_epigenetics/Amalia/wgbs/temp_data
+echo $TMPDIR
+${Rscript} /hpc/shared/uu_epigenetics/Amalia/wgbs/scripts/mapping_GSM1382256.R

@@ -1,0 +1,36 @@
+#!/bin/bash
+#SBATCH --time=12:00:00
+#SBATCH --nodes=1
+#SBATCH --ntasks=12
+#SBATCH --mem=45G
+#SBATCH --out logclumpify.out
+
+source /hpc/local/CentOS7/uu_epigenetics/software/miniconda3/etc/profile.d/conda.sh
+conda activate bbmap
+
+#deduplicate reads with bbmap's clumpify dedup
+
+#deduplicate all the fastq files in this folder
+
+
+#the data folder
+data=/hpc/shared/uu_epigenetics/Amalia/wgbs/chopped_data
+#the folder we want the output
+cut_data=/hpc/shared/uu_epigenetics/Amalia/wgbs/chopped_data/clumpified
+
+cd ${data}
+##################### Make describers #####################
+ls ${data}/*.fastq  | xargs -n 1 basename | sed s/.fastq// > ${cut_data}/describers.txt;
+#this makes a file holding the names of all my fastq files in the chopped_data folder and saves it in the new folder, where i will output my clumpify processed data
+
+Samples=$(cat ${cut_data}/describers.txt);
+
+
+##################### clumpify  #####################
+
+
+for a_sample in $Samples; do
+
+clumpify.sh in=${data}/${a_sample}.fastq out=${cut_data}/${a_sample}_clumped.fastq.gz dedupe=t subs=0
+echo -e   "The process for ${a_sample} is done \n "
+done;

@@ -1,0 +1,32 @@
+#!/bin/bash
+#SBATCH --time=48:00:00
+#SBATCH --nodes=1
+#SBATCH --ntasks=16
+#SBATCH --out logchop.out
+
+source /hpc/local/CentOS7/uu_epigenetics/software/miniconda3/etc/profile.d/conda.sh
+conda activate trimgalore
+#we are going to chop every fastq with length bigger than 50 bp to 50 bp
+
+cd /hpc/shared/uu_epigenetics/Amalia/wgbs/raw_data/concatenated_data
+#150
+
+#for sample in GSM4594635 GSM1382254
+#do
+#fastx_trimmer -i ${sample}.fastq -l 50 -Q 33 -o ../../chopped_data/${sample}_chopped_1.fastq &
+#fastx_trimmer -i ${sample}.fastq -f 51 -l 100 -Q 33 -o ../../chopped_data/${sample}_chopped_2.fastq &
+#fastx_trimmer -i ${sample}.fastq -f 101 -l 150 -Q 33 -o ../../chopped_data/${sample}_chopped_3.fastq
+#echo "File: $sample done"
+#done
+
+
+#100
+
+for sample in GSM1382253 GSM4837324
+do
+fastx_trimmer -i ${sample}.fastq -l 50 -Q 33 -o ../../chopped_data/${sample}_chopped_1.fastq &
+fastx_trimmer -i ${sample}.fastq -f 51 -l 100 -Q 33 -o ../../chopped_data/${sample}_chopped_2.fastq
+echo "File: $sample done"
+done
+
+

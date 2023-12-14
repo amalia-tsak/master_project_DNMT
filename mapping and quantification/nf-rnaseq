@@ -1,0 +1,11 @@
+#!/bin/bash
+#SBATCH --time=12:00:00
+#SBATCH --nodes=4
+#SBATCH --ntasks=48
+#SBATCH --mem=100G
+#SBATCH --out logrnaseq.out
+
+echo "whaddup"
+
+
+nextflow run nf-core/rnaseq --input samplesheet.csv --outdir /hpc/shared/uu_epigenetics/Amalia/RNA_seq/test -profile singularity --gtf references/Mus_musculus/UCSC/mm9/Annotation/Genes/genes.gtf --fasta references/Mus_musculus/UCSC/mm9/Sequence/WholeGenomeFasta/genome.fa

@@ -1,0 +1,13 @@
+#!/bin/bash
+#SBATCH --time=24:00:00
+#SBATCH --nodes=1
+#SBATCH --mem=24G
+#SBATCH --ntasks=4
+#SBATCH --out logrunCHH.out
+
+source /hpc/local/CentOS7/uu_epigenetics/software/miniconda3/etc/profile.d/conda.sh
+conda activate quasr
+Rscript=/hpc/local/CentOS7/uu_epigenetics/software/miniconda3/envs/quasr/bin/Rscript;
+
+
+${Rscript} /hpc/shared/uu_epigenetics/Amalia/wgbs/scripts/run_CHH_all.R
