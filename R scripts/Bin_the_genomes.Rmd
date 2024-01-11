@@ -1,0 +1,312 @@
+---
+title: "Bin_the_genome"
+author: "Amalia"
+date: "2023-06-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Bin the CpG files into 1kb/10kb sized windows
+We want to bin our genome into tiles, and get the ratio of methylation in purines and pyrimidines in each of these subgroups.
+In order To do that we have to calculate the average methylation of each CGN, and we will also count the number of mapped CGNs, which is what this script will do.
+
+load the libraries
+```{r, message=FALSE}
+library(GenomicRanges)
+library(tidyverse)
+library (purrr)
+library(plyranges)
+library(rlist)
+library(BSgenome.Mmusculus.UCSC.mm9)
+```
+
+As a first step, we have to divide the CpGs into the group. We do so by "annotating" each CpG with the number of (genomic) tile it falls into.
+```{r}
+#we get the tiles by cutting the mm9 genome 
+tiles<-tileGenome(seqinfo(Mmusculus),tilewidth = 1000, cut.last.tile.in.chrom = TRUE)
+#DNMT3A<-readRDS("../methylation_project/data/TKO_DNMT3A2_wt_i12_WGBS_CGN.gr.rds")
+tile.df<-as.data.frame(tiles) #used later 
+
+```
+get the average meth in each bin and total number 
+```{r}
+#create a vector holding the names of all the sample names
+
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/raw_data/CpG/", sample_names[i],"_mCpG.rds" ,sep=""))
+  a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>4 & a$T<101] #filter for at least 5 reads, to have enough points (10 is too strict)
+  #add the bins in the sample = information about which tile it belongs to 
+  ah<-findOverlaps(a,tiles)
+  ##we will add column about the "position" (in which 1kb bin it falls into)
+  mcols(a)$bin<-NA
+  mcols(a)$bin[queryHits(ah)]<-subjectHits(ah)
+  ## by doing tiles[ bin number] you can find the bin 
+  d<-as.data.frame(a)
+  
+  #get average meth score per bin and number of cpgs
+  avg<- d %>% group_by(bin) %>% summarise(avg_meth=mean(score))
+  tot<- d %>% group_by(bin) %>% summarise(CG_num=n())
+  totl<-merge(avg, tot, by="bin")
+  
+  #get average meth score per CGN per bin
+  e<-d %>% group_by(bin,CGN_seq) %>% summarise(mean_meth=mean(score))
+  e<-e %>% spread(CGN_seq,mean_meth)
+  
+  d<- d %>% mutate(pur_pyr = case_when(CGN_seq == "CGA" | CGN_seq == "CGG" ~"Purine", CGN_seq == "CGT" | CGN_seq == "CGC" ~ "Pyrimidine"))
+  e_p<-d %>% group_by(bin,pur_pyr) %>% summarise(mean_meth=mean(score))
+  e_p<-e_p %>% spread(pur_pyr,mean_meth)
+  e<-merge(e, e_p, by="bin")
+  
+  colnames(e)<-paste(colnames(e), "meth",sep="_" )
+  
+  #get number of each CGN per bin
+  e_2<-d %>% group_by(bin, CGN_seq) %>% summarise(count=n(), .groups = 'drop')
+  e_2<-e_2 %>% spread(CGN_seq,count)
+  e_p2<-d %>% group_by(bin,pur_pyr) %>% summarise(count=n(), .groups = 'drop')
+  e_p2<-e_p2 %>% spread(pur_pyr,count)
+  e_2<-merge(e_2, e_p2, by="bin")
+  colnames(e_2)<-paste(colnames(e_2), "num", sep = "_")
+  
+  df<-cbind(e,e_2)
+  df<-cbind(totl,df)
+  df<-df %>% select(-c("bin_num","bin_meth")) 
+  pf<-tile.df %>% mutate(rn= row_number()) %>% filter(rn %in% e_2$bin_num)
+  df<-cbind(df, pf) %>% select(-"rn")
+  saveRDS(df, file=paste0("../data/processed/bins/CpGs/1kb/", sample_names[i], ".RDS"))
+}
+
+```
+same for 10 kb
+```{r}
+#we get the tiles by cutting the mm9 genome 
+tiles<-tileGenome(seqinfo(Mmusculus),tilewidth = 10000, cut.last.tile.in.chrom = TRUE)
+#DNMT3A<-readRDS("../methylation_project/data/TKO_DNMT3A2_wt_i12_WGBS_CGN.gr.rds")
+tile.df<-as.data.frame(tiles) #used later 
+
+```
+Average meth and n of CpGs 
+```{r}
+#create a vector holding the names of all the sample names
+
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/raw_data/CpG/", sample_names[i],"_mCpG.rds" ,sep=""))
+  a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>4 & a$T<101] #filter for at least 5 reads, to have enough points (10 is too strict)
+  #add the bins in the sample = information about which tile it belongs to 
+  ah<-findOverlaps(a,tiles)
+  ##we will add column about the "position" (in which 1kb bin it falls into)
+  mcols(a)$bin<-NA
+  mcols(a)$bin[queryHits(ah)]<-subjectHits(ah)
+  ## by doing tiles[ bin number] you can find the bin 
+  d<-as.data.frame(a)
+  
+  #get average meth score per bin and number of cpgs
+  avg<- d %>% group_by(bin) %>% summarise(avg_meth=mean(score))
+  tot<- d %>% group_by(bin) %>% summarise(CG_num=n())
+  totl<-merge(avg, tot, by="bin")
+  
+  #get average meth score per CGN per bin
+  e<-d %>% group_by(bin,CGN_seq) %>% summarise(mean_meth=mean(score))
+  e<-e %>% spread(CGN_seq,mean_meth)
+  
+  d<- d %>% mutate(pur_pyr = case_when(CGN_seq == "CGA" | CGN_seq == "CGG" ~"Purine", CGN_seq == "CGT" | CGN_seq == "CGC" ~ "Pyrimidine"))
+  e_p<-d %>% group_by(bin,pur_pyr) %>% summarise(mean_meth=mean(score))
+  e_p<-e_p %>% spread(pur_pyr,mean_meth)
+  e<-merge(e, e_p, by="bin")
+  
+  colnames(e)<-paste(colnames(e), "meth",sep="_" )
+  
+  #get number of each CGN per bin
+  e_2<-d %>% group_by(bin, CGN_seq) %>% summarise(count=n(), .groups = 'drop')
+  e_2<-e_2 %>% spread(CGN_seq,count)
+  e_p2<-d %>% group_by(bin,pur_pyr) %>% summarise(count=n(), .groups = 'drop')
+  e_p2<-e_p2 %>% spread(pur_pyr,count)
+  e_2<-merge(e_2, e_p2, by="bin")
+  colnames(e_2)<-paste(colnames(e_2), "num", sep = "_")
+  
+  df<-cbind(e,e_2)
+  df<-cbind(totl,df)
+  df<-df %>% select(-c("bin_num","bin_meth")) 
+  pf<-tile.df %>% mutate(rn= row_number()) %>% filter(rn %in% e_2$bin_num)
+  df<-cbind(df, pf) %>% select(-"rn")
+  saveRDS(df, file=paste0("../data/processed/bins/CpGs/10kb/", sample_names[i], ".RDS"))
+}
+
+```
+#Now lets bin the genomes for the CHH data
+#Bin the CHH files into 1kb/10kb sized windows
+We want to bin our genome into tiles, and get the ratio of methylation in purines and pyrimidines in each of these subgroups.
+In order To do that we have to calculate the average methylation of each CHH, and we will also count the number of mapped CHHs, which is what this script will do.
+
+As a first step, we have to divide the CpGs into the group. We do so by "annotating" each CpG with the number of (genomic) tile it falls into.
+```{r}
+#we get the tiles by cutting the mm9 genome 
+tiles<-tileGenome(seqinfo(Mmusculus),tilewidth = 1000, cut.last.tile.in.chrom = TRUE)
+#DNMT3A<-readRDS("../methylation_project/data/TKO_DNMT3A2_wt_i12_WGBS_CGN.gr.rds")
+tile.df<-as.data.frame(tiles) #used later 
+
+```
+test
+filter based on number of reads
+remove CGs
+```{r}
+i=1
+j=21
+a<-readRDS(file = paste0("../data/raw_data/CHH/", sample_names[i],"_", Total_chr[j],".rds"))
+a<- a[a$T>4 & a$T<101] #filter for at least 5 reads, to have enough points (10 is too strict)
+  #add the bins in the sample = information about which tile it belongs to
+a<-filter(a, !CGN_seq %in% c("CGA", "CGC","CGG","CGT")) #filter out CGs
+#unique(a$CGN_seq) sanity check that no CGs exist anymore
+ah<-findOverlaps(a,tiles)
+  ##we will add column about the "position" (in which 1kb bin it falls into)
+  mcols(a)$bin<-NA
+  mcols(a)$bin[queryHits(ah)]<-subjectHits(ah)
+  ## by doing tiles[ bin number] you can find the bin 
+  d<-as.data.frame(a)
+  
+  #get average meth score per bin and number of cpgs
+  avg<- d %>% group_by(bin) %>% summarise(avg_meth=mean(score))
+  tot<- d %>% group_by(bin) %>% summarise(CG_num=n())
+  totl<-merge(avg, tot, by="bin")
+  
+  #get average meth score per CHH per bin
+  e<-d %>% group_by(bin,CGN_seq) %>% summarise(mean_meth=mean(score))
+  e<-e %>% spread(CGN_seq,mean_meth)
+  
+  d<- d %>% mutate(pur_pyr = case_when(CGN_seq == "CGA" | CGN_seq == "CGG" ~"Purine", CGN_seq == "CGT" | CGN_seq == "CGC" ~ "Pyrimidine"))
+  e_p<-d %>% group_by(bin,pur_pyr) %>% summarise(mean_meth=mean(score))
+  e_p<-e_p %>% spread(pur_pyr,mean_meth)
+  e<-merge(e, e_p, by="bin")
+  
+  colnames(e)<-paste(colnames(e), "meth",sep="_" )
+  
+  #get number of each CGN per bin
+  e_2<-d %>% group_by(bin, CGN_seq) %>% summarise(count=n(), .groups = 'drop')
+  e_2<-e_2 %>% spread(CGN_seq,count)
+  e_p2<-d %>% group_by(bin,pur_pyr) %>% summarise(count=n(), .groups = 'drop')
+  e_p2<-e_p2 %>% spread(pur_pyr,count)
+  e_2<-merge(e_2, e_p2, by="bin")
+  colnames(e_2)<-paste(colnames(e_2), "num", sep = "_")
+  
+  df<-cbind(e,e_2)
+  df<-cbind(totl,df)
+  df<-df %>% select(-c("bin_num","bin_meth")) 
+  pf<-tile.df %>% mutate(rn= row_number()) %>% filter(rn %in% e_2$bin_num)
+  df<-cbind(df, pf) %>% select(-"rn")
+```
+test
+```{r}
+#create a vector holding the names of all the sample names
+
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+Total_chr  <-  c(paste("chr", 1:19, sep=''), 'chrX','chrY')
+for(i in 1:10){
+  for(j in 1:21){
+  a<-readRDS(file = paste0("../data/raw_data/CHH/", sample_names[i],"_", Total_chr[j],".rds"))
+  a<- a[a$T>4 & a$T<101] #filter for at least 5 reads, to have enough points (10 is too strict)
+  #add the bins in the sample = information about which tile it belongs to 
+  a<-filter(a, !CGN_seq %in% c("CGA", "CGC","CGG","CGT")) #filter out CGs
+ #unique(a$CGN_seq) sanity check that no CGs exist anymore
+  ah<-findOverlaps(a,tiles)
+  ##we will add column about the "position" (in which 1kb bin it falls into)
+  mcols(a)$bin<-NA
+  mcols(a)$bin[queryHits(ah)]<-subjectHits(ah)
+  ## by doing tiles[ bin number] you can find the bin 
+  d<-as.data.frame(a)
+  
+  #get average meth score per bin and number of cpgs
+  avg<- d %>% group_by(bin) %>% summarise(avg_meth=mean(score))
+  tot<- d %>% group_by(bin) %>% summarise(CG_num=n())
+  totl<-merge(avg, tot, by="bin")
+  
+  #get average meth score per CGN per bin
+  e<-d %>% group_by(bin,CGN_seq) %>% summarise(mean_meth=mean(score))
+  e<-e %>% spread(CGN_seq,mean_meth)
+  
+  d<- d %>% mutate(pur_pyr = case_when(CGN_seq == "CGA" | CGN_seq == "CGG" ~"Purine", CGN_seq == "CGT" | CGN_seq == "CGC" ~ "Pyrimidine"))
+  e_p<-d %>% group_by(bin,pur_pyr) %>% summarise(mean_meth=mean(score))
+  e_p<-e_p %>% spread(pur_pyr,mean_meth)
+  e<-merge(e, e_p, by="bin")
+  
+  colnames(e)<-paste(colnames(e), "meth",sep="_" )
+  
+  #get number of each CGN per bin
+  e_2<-d %>% group_by(bin, CGN_seq) %>% summarise(count=n(), .groups = 'drop')
+  e_2<-e_2 %>% spread(CGN_seq,count)
+  e_p2<-d %>% group_by(bin,pur_pyr) %>% summarise(count=n(), .groups = 'drop')
+  e_p2<-e_p2 %>% spread(pur_pyr,count)
+  e_2<-merge(e_2, e_p2, by="bin")
+  colnames(e_2)<-paste(colnames(e_2), "num", sep = "_")
+  
+  df<-cbind(e,e_2)
+  df<-cbind(totl,df)
+  df<-df %>% select(-c("bin_num","bin_meth")) 
+  pf<-tile.df %>% mutate(rn= row_number()) %>% filter(rn %in% e_2$bin_num)
+  df<-cbind(df, pf) %>% select(-"rn")
+  saveRDS(df, file=paste0("../data/processed/bins/CpGs/1kb/", sample_names[i], ".RDS"))
+  }
+}
+
+```
+
+get the average meth in each bin and total number 
+```{r}
+#create a vector holding the names of all the sample names
+
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+for(i in 1:10){
+  for(j in 1:21){
+  a<-readRDS(file = paste0("../data/raw_data/CHH/", sample_names[i],"_", Total_chr[j],".rds"))
+  a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>4 & a$T<101] #filter for at least 5 reads, to have enough points (10 is too strict)
+  #add the bins in the sample = information about which tile it belongs to 
+  ah<-findOverlaps(a,tiles)
+  ##we will add column about the "position" (in which 1kb bin it falls into)
+  mcols(a)$bin<-NA
+  mcols(a)$bin[queryHits(ah)]<-subjectHits(ah)
+  ## by doing tiles[ bin number] you can find the bin 
+  d<-as.data.frame(a)
+  
+  #get average meth score per bin and number of cpgs
+  avg<- d %>% group_by(bin) %>% summarise(avg_meth=mean(score))
+  tot<- d %>% group_by(bin) %>% summarise(CG_num=n())
+  totl<-merge(avg, tot, by="bin")
+  
+  #get average meth score per CGN per bin
+  e<-d %>% group_by(bin,CGN_seq) %>% summarise(mean_meth=mean(score))
+  e<-e %>% spread(CGN_seq,mean_meth)
+  
+  d<- d %>% mutate(pur_pyr = case_when(CGN_seq == "CGA" | CGN_seq == "CGG" ~"Purine", CGN_seq == "CGT" | CGN_seq == "CGC" ~ "Pyrimidine"))
+  e_p<-d %>% group_by(bin,pur_pyr) %>% summarise(mean_meth=mean(score))
+  e_p<-e_p %>% spread(pur_pyr,mean_meth)
+  e<-merge(e, e_p, by="bin")
+  
+  colnames(e)<-paste(colnames(e), "meth",sep="_" )
+  
+  #get number of each CGN per bin
+  e_2<-d %>% group_by(bin, CGN_seq) %>% summarise(count=n(), .groups = 'drop')
+  e_2<-e_2 %>% spread(CGN_seq,count)
+  e_p2<-d %>% group_by(bin,pur_pyr) %>% summarise(count=n(), .groups = 'drop')
+  e_p2<-e_p2 %>% spread(pur_pyr,count)
+  e_2<-merge(e_2, e_p2, by="bin")
+  colnames(e_2)<-paste(colnames(e_2), "num", sep = "_")
+  
+  df<-cbind(e,e_2)
+  df<-cbind(totl,df)
+  df<-df %>% select(-c("bin_num","bin_meth")) 
+  pf<-tile.df %>% mutate(rn= row_number()) %>% filter(rn %in% e_2$bin_num)
+  df<-cbind(df, pf) %>% select(-"rn")
+  saveRDS(df, file=paste0("../data/processed/bins/CpGs/1kb/", sample_names[i], ".RDS"))
+  }
+}
+
+```
+
+
+

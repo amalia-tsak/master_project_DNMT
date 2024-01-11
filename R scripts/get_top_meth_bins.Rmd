@@ -1,0 +1,349 @@
+---
+title: "Get top methylated bins"
+author: "Amalia"
+date: "2023-07-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+From the binned genome, we want to find regions of interest. 
+
+We will rank the tiles according to one characteristic. These characteristics could be:
+average methylation of the bin, proportion of methylation in the bin explained by purines/ pyrimidines (we will chose according to the preference found in the whole genome), and "normalized" ratio of methylation in purines over pyrimidines 
+
+Load packages
+```{r}
+#library(GenomicRanges)
+library(tidyverse)
+#library (purrr)
+#library(plyranges)
+#library(rlist)
+library(ggvenn)
+library(UpSetR)
+```
+
+
+We want to get the top methylated bins in each sample, but in order to be able to compare it between samples we will only keep the bins that can be found (after filtering) in all
+
+We will only use the 8 following samples, we will not look at the other two because of their low coverage
+(I might later remove the last one as well)
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786","GSM748787")
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1","WT","WT") #I have to use these as names as well
+```
+
+Find common bins for average methylation
+I filter bins that have less that 5 CpGs mapped
+```{r}
+mu_list<-list() # a list to save all the bins that pass the filter 
+for(i in 1:8){
+  c<-readRDS(file=paste0("../data/processed/bins/CpGs/1kb/", sample_names[i], ".RDS"))
+  #We are going to filter out the bins that contain less than 5 mapped CG 
+  c<-c %>% filter(CG_num>4)
+  d<-c %>% select(bin)
+  colnames(d)<-sample_names[i] 
+  a <-as.vector(d)
+  mu_list[sample_names[i]]<-a
+  #assign(sample_names[i], c) #gives variable name (in case I want to save every sample)
+}
+#now that we have all the bins of each sample we will find the common elements in all
+#save bin ids of each sample in a list 
+
+common<-Reduce(intersect, mu_list[1:8])
+#bla<-head(common) #for test
+
+```
+We will now keep only the bins that are in all of them
+
+```{r}
+for(i in 1:8){
+  c<-readRDS(file=paste0("../data/processed/bins/CpGs/1kb/", sample_names[i], ".RDS"))
+  #We are going to filter out the bins that contain less than 3 mapped CG 
+  c<-c %>% filter(bin %in% common)
+  c$rank<-rank(-c$avg_meth)#Rank references the position of the value in the sorted vector and is in the same order as the original sequence
+  #rank 1 has the highest meth
+  d<-c %>% arrange(rank) #arraange according to rank (we used rank first and not justy arrange on our values immediatelly cause we have a lot of rows with the exact same value)
+# Now we want to exract x number of bins with highest rank. Lets say 5%
+#to get that 5% we are going to count the number of rows and use 0.05*that and keep the first rows
+  t<-round(nrow(c)*0.05) # find n for top 5 %
+  max_rank<-d[t,]$rank #extract the rank at the position of 5%
+  #we want to keep everything up to that rank 
+  e<- d %>% filter(rank<=max_rank)
+  assign(sample_names[i], e) #gives variable name
+}
+
+#Now we have all the dataframes, I will only keep the top bins, to see whether there is overlap between samples
+mu_list_2<-list() #empty list
+# we are going to paste there all the top bins to use later with ggven 
+
+for(i in 1:8){
+a<-get(sample_names[i]) %>% select(bin)#"get" calls the data by the variable name
+colnames(a)<-sample_names[i] 
+a <-as.vector(a)
+mu_list_2[sample_names[i]]<-a
+
+}
+#max_rank<-d[t,]$rank #extract the rank at the position of 5%
+#we want to keep everything up to that rank 
+#e<- d %>% filter(rank<=max_rank)
+
+#tail(e)
+library(ggvenn)
+ggvenn(mu_list_2[c(1,2,3)], stroke_size = 0.5, set_name_size = 2.5)
+ggvenn(mu_list_2[c(4,5,6)], stroke_size = 0.5, set_name_size = 2.5)
+ggvenn(mu_list_2[c(7,8)], stroke_size = 0.5, set_name_size = 2.5)
+ggvenn(mu_list_2[c(1,2,4,5)], stroke_size = 0.5, set_name_size = 2.5)
+library(UpSetR)
+```
+
+```{r}
+la<-fromList(mu_list_2)
+la
+#upset(la,empty.intersections = "on", order.by = "freq", keep.order = TRUE)
+set_vars <- sample_names
+upset(la,sets = set_vars,empty.intersections = "on", order.by = "freq", keep.order = TRUE)
+
+```
+
+
+
+try another package
+
+```{r}
+#library(ggupset)
+
+#la %>%
+#  ggplot(aes(x=Genres)) +
+#    geom_bar() +
+#    scale_x_upset(n_intersections = 20)
+```
+
+We ll do the same but for ratio of methylation 
+{
+For purine/pyrimidine methylation
+We want to calculate the purine methylation / pyrimidine methylation ratio in each bin
+We will filter out bins that have only mapped CGs followed by purines or only by purines.
+We will create an artificial column where we add +0.01 on purine and pyrimidine methylation 
+Because we would otherwise (because of the many 0 values ) we would get a lot of ratios that are equal to 0 or infinity.
+
+We will have a column with the log2 transformation of that ratio because that way, a ratio can be comparable when its reversed {eg the ratio of 0.8/0.2 vs 0.2/0.8 would have an equal absolute value of 2 whereas the values without log2 are 4 and 0.25}
+}
+Find common bins 
+I filter bins that have less that 5 CpGs mapped, bins that dont have both purines and pyrimidines mapped (at least twice)
+```{r}
+mu_list<-list() # a list to save all the bins that pass the filter 
+for(i in 1:8){
+  c<-readRDS(file=paste0("../data/processed/bins/CpGs/1kb/", sample_names[i], ".RDS"))
+  #We are going to filter out the bins that contain less than 5 mapped CG 
+  c<-c %>% filter(CG_num>4)
+  c<-c %>% filter(!is.na(Purine_num) & !is.na(Pyrimidine_num)) #have at least one from both
+  c<- c %>% filter(Purine_num>1 & Pyrimidine_num>1)
+  d<-c %>% select(bin)
+  colnames(d)<-sample_names[i] 
+  a <-as.vector(d)
+  mu_list[sample_names[i]]<-a
+  #assign(sample_names[i], c) #gives variable name (in case I want to save every sample)
+}
+#now that we have all the bins of each sample we will find the common elements in all
+#save bin ids of each sample in a list 
+
+common<-Reduce(intersect, mu_list[1:8])
+#bla<-head(common) #for test
+
+```
+We will now keep only the bins that are in all of them
+
+```{r}
+# for now i will choose from the wt cells the preference in purines
+for(i in 1:8){
+  c<-readRDS(file=paste0("../data/processed/bins/CpGs/1kb/", sample_names[i], ".RDS"))
+  #We are going to filter out the bins that contain less than 3 mapped CG 
+  c<-c %>% filter(bin %in% common)
+  #now create columns with modified methylation
+  c<-c %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+  c<-c %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  #now create col with ratio of those two
+  c <-c %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  c<-c %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr)) 
+  c$rank<-rank(-c$ratio_purpyr_log)#Rank references the position of the value in the sorted vector and is in the same order as the original sequence 
+  #most negative will be rank1 
+  #negatives have a pyrimidine preference 
+  # arrange differently for A and B, we want to get the most negatives for 3A and the most positives for 3B
+  t<-round(nrow(c)*0.05) # find n for top 5 %
+  print(t)
+  if(i<=3){
+    d<-c %>% arrange(-rank)
+    max_rank<-d[t,]$rank #extract the rank at the position of 5%
+    #we want to keep everything up to that rank 
+    e<- d %>% filter(rank>=max_rank)
+    assign(sample_names[i], e) 
+    #get the ones with biggest preference for pyrim (for 3A)
+  }else{
+    d<-c %>% arrange(rank)
+    max_rank<-d[t,]$rank #extract the rank at the position of 5%
+    #we want to keep everything up to that rank 
+    e<- d %>% filter(rank<=max_rank)
+    assign(sample_names[i], e)
+    #get the ones with biggest preference for purine (for 3B)
+  }
+  
+}
+
+#Now we have all the dataframes, I will only keep the top bins, to see whether there is overlap between samples
+mu_list_3<-list() #empty list
+# we are going to paste there all the top bins to use later with ggven 
+
+for(i in 1:8){
+a<-get(sample_names[i]) %>% select(bin)#"get" calls the data by the variable name
+colnames(a)<-sample_names[i] 
+a <-as.vector(a)
+mu_list_3[sample_names[i]]<-a
+
+}
+#max_rank<-d[t,]$rank #extract the rank at the position of 5%
+#we want to keep everything up to that rank 
+#e<- d %>% filter(rank<=max_rank)
+
+#tail(e)
+
+ggvenn(mu_list_3[c(1,2,3)], stroke_size = 0.5, set_name_size = 2.5)
+ggvenn(mu_list_3[c(4,5,6)], stroke_size = 0.5, set_name_size = 2.5)
+ggvenn(mu_list_3[c(7,8)], stroke_size = 0.5, set_name_size = 2.5)
+ggvenn(mu_list_3[c(1,2,4,5)], stroke_size = 0.5, set_name_size = 2.5)
+
+ggvenn(mu_list_3[c(5,6)], stroke_size = 0.5, set_name_size = 2.5)
+
+#use upsetplots
+la_2<-fromList(mu_list_3)
+#la_2
+#upset(la,empty.intersections = "on", order.by = "freq", keep.order = TRUE)
+set_vars_2 <- sample_names[1:6]
+upset(la_2,sets = set_vars_2,empty.intersections = "on", order.by = "freq", keep.order = TRUE)
+```
+What idf I pick all the ones with the preference for pyrimidine meth and then all the ones for purine
+
+First same as before
+```{r}
+mu_list<-list() # a list to save all the bins that pass the filter 
+for(i in 1:8){
+  c<-readRDS(file=paste0("../data/processed/bins/CpGs/1kb/", sample_names[i], ".RDS"))
+  #We are going to filter out the bins that contain less than 5 mapped CG 
+  c<-c %>% filter(CG_num>4)
+  c<-c %>% filter(!is.na(Purine_num) & !is.na(Pyrimidine_num)) #have at least one from both
+  c<- c %>% filter(Purine_num>1 & Pyrimidine_num>1)
+  d<-c %>% select(bin)
+  colnames(d)<-sample_names[i] 
+  a <-as.vector(d)
+  mu_list[sample_names[i]]<-a
+  #assign(sample_names[i], c) #gives variable name (in case I want to save every sample)
+}
+#now that we have all the bins of each sample we will find the common elements in all
+#save bin ids of each sample in a list 
+
+common<-Reduce(intersect, mu_list[1:8])
+#bla<-head(common) #for test
+```
+
+```{r}
+# for now i will choose from the wt cells the preference in pyrim
+for(i in 1:8){
+  c<-readRDS(file=paste0("../data/processed/bins/CpGs/1kb/", sample_names[i], ".RDS"))
+  #We are going to filter out the bins that contain less than 3 mapped CG 
+  c<-c %>% filter(bin %in% common)
+  #now create columns with modified methylation
+  c<-c %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+  c<-c %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  #now create col with ratio of those two
+  c <-c %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  c<-c %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr)) 
+  c$rank<-rank(-c$ratio_purpyr_log)#Rank references the position of the value in the sorted vector and is in the same order as the original sequence 
+  #most negative will be rank1 
+  #negatives have a pyrimidine preference 
+  # arrange differently for A and B, we want to get the most negatives for 3A and the most positives for 3B
+  t<-round(nrow(c)*0.05) # find n for top 5 %
+  print(t)
+  d<-c %>% arrange(-rank)
+  max_rank<-d[t,]$rank #extract the rank at the position of 5%
+  #we want to keep everything up to that rank 
+  e<- d %>% filter(rank>=max_rank)
+  assign(sample_names[i], e) #gives variable name
+  #we get biggest preference for pyrimidines 
+  
+}
+
+#Now we have all the dataframes, I will only keep the top bins, to see whether there is overlap between samples
+mu_list_4<-list() #empty list
+# we are going to paste there all the top bins to use later with ggven 
+
+for(i in 1:8){
+a<-get(sample_names[i]) %>% select(bin)#"get" calls the data by the variable name
+colnames(a)<-sample_names[i] 
+a <-as.vector(a)
+mu_list_4[sample_names[i]]<-a
+
+}
+#max_rank<-d[t,]$rank #extract the rank at the position of 5%
+#we want to keep everything up to that rank 
+#e<- d %>% filter(rank<=max_rank)
+
+#tail(e)
+
+ggvenn(mu_list_4[c(1,2,3)], stroke_size = 0.5, set_name_size = 2.5)
+ggvenn(mu_list_4[c(4,5,6)], stroke_size = 0.5, set_name_size = 2.5)
+ggvenn(mu_list_4[c(7,8)], stroke_size = 0.5, set_name_size = 2.5)
+ggvenn(mu_list_4[c(1,2,4,5)], stroke_size = 0.5, set_name_size = 2.5)
+
+ggvenn(mu_list_4[c(5,6)], stroke_size = 0.5, set_name_size = 2.5)
+
+#use upsetplots
+la_3<-fromList(mu_list_4)
+#la_2
+#upset(la,empty.intersections = "on", order.by = "freq", keep.order = TRUE)
+set_vars <- sample_names[1:8]
+upset(la_3,sets = set_vars,empty.intersections = "on", order.by = "freq", keep.order = TRUE)
+```
+
+
+
+
+
+###
+I created the df with 1 or 0 for presence of each element, dont need it but i ll keep it here 
+```{r}
+library(dplyr)
+combined <- reduce(mu_list_2, full_join)
+combined[is.na(combined)] <- 0
+combined
+
+combined <- reduce(list(data.frame(gene=c('gene1', 'gene2', 'gene3'), set1=1),
+                        data.frame(gene=c('gene3', 'gene4', 'gene5'), set2=1),
+                        data.frame(gene=c('gene1', 'gene4'), set3=1)
+                       ), full_join)
+
+combined_2<-reduce(list(data.frame(bin=mu_list_2[[1]], set1=1),
+                        data.frame(bin=mu_list_2[[2]], set2=1),
+                        data.frame(bin=mu_list_2[[3]], set3=1),
+                        data.frame(bin=mu_list_2[[4]], set4=1),
+                        data.frame(bin=mu_list_2[[5]], set5=1),
+                        data.frame(bin=mu_list_2[[6]], set6=1),
+                        data.frame(bin=mu_list_2[[7]], set7=1),
+                        data.frame(bin=mu_list_2[[8]], set8=1)
+                       ), full_join)
+
+combined_2[is.na(combined_2)] <- 0
+combined_2
+
+
+upset(combined_2)
+
+
+set_vars <- c("set1", "set2", "set3", "set4", "set5", "set6", "set7", "set8")
+upset(combined_2, sets = set_vars,order.by = "freq", keep.order = TRUE)
+```
+

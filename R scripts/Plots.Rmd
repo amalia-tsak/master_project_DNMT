@@ -1,0 +1,492 @@
+---
+title: "plots"
+author: "Amalia"
+date: "2023-06-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load the libraries
+```{r, echo=FALSE}
+library(GenomicRanges)
+library(BSgenome.Mmusculus.UCSC.mm9)
+library(tidyverse)
+library(plyranges)
+
+library(RColorBrewer)
+library(wesanderson)
+library(stringr)
+```
+
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/raw_data/CpG/", sample_names[i],"_mCpG.rds" ,sep=""))
+  a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>9 & a$T<101]
+  plot<-a%>%as.data.frame() %>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = sample_names[i])+theme_minimal() +scale_fill_manual(values = c("#332288","#117733" ,"#88CCEE","#44AA99"))
+  png(paste0("../figures/CpG_average_perCGN/", sample_names[i], ".png"), width = 1200, height = 700, res=300 )
+  print(plot)
+  dev.off()
+  
+}
+
+  #getwd()
+```
+#test CGN without error bars
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1","DNMT3B1","WT","WT")
+
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/raw_data/CpG/", sample_names[i],"_mCpG.rds" ,sep=""))
+  a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>9 & a$T<101]
+  plot<-a%>%as.data.frame() %>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+theme_classic() +scale_fill_manual(values= wes_palette("GrandBudapest2", n = 4))
+  ggsave(paste0("../figures/CpG_average_ofCGN/", sample_names[i], ".png"), plot = plot)
+  plot
+}
+```
+#test CHH without error bars
+```{r}
+#nb.cols <- 16
+#mycolors <- colorRampPalette(brewer.pal(8, "Set2"))(nb.cols)
+#library(RColorBrewer)
+#cols <- brewer.pal(4, "GrandBudapest2")
+#cols
+#we want to remove CGs
+
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1","DNMT3B1","WT","WT")
+
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/processed/CHH_mean/", sample_names[i],".rds" ,sep=""))
+  plot<-a %>%filter(!CHH_seq %in% c("CGA", "CGG","CGC","CGT")) %>% ggplot(aes(x=CHH_seq, y= mean, fill=CHH_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+theme_classic() +scale_fill_manual(values= wes_palette("GrandBudapest2", n=12, type = "continuous"))
+  ggsave(paste0("../figures/CHH_average_ofCHH/", sample_names[i], ".png"), plot = plot)
+  plot
+}
+
+#readRDS("../data/processed/CHH_mean/GSM4594635.rds")
+```
+#CHH with levels
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1","DNMT3B1","WT","WT")
+
+#a$CHH_seq<- factor(a$CHH_seq, levels=c("CAA","CAG","CCA","CCG","CGA","CGG","CTA","CTG","CAT","CAC","CCT","CCC","CGT","CGC","CTT","CTC","CGA", "CGG","CGC","CGT"))
+
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/processed/CHH_mean/", sample_names[i],".rds" ,sep=""))
+  a$CHH_seq<- factor(a$CHH_seq, levels=c("CAA","CAG","CCA","CCG","CGA","CGG","CTA","CTG","CAT","CAC","CCT","CCC","CGT","CGC","CTT","CTC"))
+  plot<-a %>%filter(!CHH_seq %in% c("CGA", "CGG","CGC","CGT")) %>% ggplot(aes(x=CHH_seq, y= mean, fill=CHH_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+theme_classic() +scale_fill_manual(values= wes_palette("GrandBudapest2", n=12, type = "continuous"))
+  ggsave(paste0("../figures/CHH_average_ofCHH/", sample_names[i], ".png"), plot = plot)
+  plot
+}
+ 
+```
+
+```{r}
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/processed/CHH_mean/", sample_names[i],".rds" ,sep=""))
+  a$CHH_seq<- factor(a$CHH_seq, levels=c("CAA","CAG","CCA","CCG","CGA","CGG","CTA","CTG","CAT","CAC","CCT","CCC","CGT","CGC","CTT","CTC"))
+  plot<-a %>%filter(!CHH_seq %in% c("CGA", "CGG","CGC","CGT")) %>% ggplot(aes(x=CHH_seq, y= mean, fill=CHH_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+theme_classic() +scale_fill_manual(values= c("blue","blue","blue","blue","blue","blue","red","red","red","red","red","red"))
+  ggsave(paste0("../figures/CHH_average_ofCHH/onlytwocolours/", sample_names[i], ".png"), plot = plot)
+  plot
+}
+```
+
+```{r}
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/processed/CHH_mean/CHH_mean_removing methylation 0/", sample_names[i],".rds" ,sep=""))
+  a$CHH_seq<- factor(a$CHH_seq, levels=c("CAA","CAG","CCA","CCG","CGA","CGG","CTA","CTG","CAT","CAC","CCT","CCC","CGT","CGC","CTT","CTC"))
+  plot<-a %>%filter(!CHH_seq %in% c("CGA", "CGG","CGC","CGT")) %>% ggplot(aes(x=CHH_seq, y= mean, fill=CHH_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+theme_classic() +scale_fill_manual(values= c("blue","blue","blue","blue","blue","blue","red","red","red","red","red","red"))
+  ggsave(paste0("../figures/CHH_average_ofCHH/removed0/onlytwocolours/", sample_names[i], ".png"), plot = plot)
+  plot
+}
+```
+only CA meth
+```{r}
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/processed/CHH_mean/", sample_names[i],".rds" ,sep=""))
+  plot<-a %>%filter(CHH_seq %in% c("CAA", "CAG","CAC","CAT")) %>% ggplot(aes(x=CHH_seq, y= mean, fill=CHH_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+theme_classic()
+  ggsave(paste0("../figures/CHH_average_ofCHH/onlyCA/", sample_names[i], ".png"), plot = plot)
+  plot
+}
+```
+
+```{r}
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/processed/CHH_mean/CHH_mean_removing methylation 0/", sample_names[i],".rds" ,sep=""))
+
+  plot<-a %>%filter(CHH_seq %in% c("CAA", "CAG","CAC","CAT")) %>% ggplot(aes(x=CHH_seq, y= mean, fill=CHH_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+theme_classic()
+  ggsave(paste0("../figures/CHH_average_ofCHH/removed0/onlyCA/", sample_names[i], ".png"), plot = plot)
+  plot
+}
+```
+
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/raw_data/CpG/", sample_names[i],"_mCpG.rds" ,sep=""))
+  a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>9 & a$T<101]
+  plot<-a%>%as.data.frame() %>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = sample_names[i])+theme_minimal() +scale_fill_manual(values = c("#332288","#117733" ,"#88CCEE","#44AA99"))
+  ggsave(paste0("../figures/CpG_average_ofCGN/", sample_names[i], ".png"), plot = plot)
+  
+}
+```
+
+
+
+```{r}
+CHH<-readRDS("../data/raw_data/CHH/GSM1382253_chr1.rds_mCHH.rds")
+
+CHH_filtered<- CHH[CHH$T>9 &CHH$T<101]
+
+#CHH<-CHH_filtered %>%  as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","_T","_M","score", "CGN_seq")) %>% makeGRangesFromDataFrame(keep.extra.columns = TRUE)
+
+CHH_filtered %>% as.data.frame() %>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = "DNMT3A_GSM1382253")+theme_minimal() 
+
+#without the CGs
+CHH_filtered %>% as.data.frame() %>% filter(!CGN_seq %in% c('CGA', 'CGC','CGG','CGT' ))%>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = "DNMT3A_GSM1382253")+theme_minimal() 
+
+
+```
+
+```{r}
+  
+files <- list.files(path="data/raw_data/completely unprocessed/CHH", pattern="*.rds", full.names=FALSE, recursive=FALSE)
+files<-as.list(files)
+files_2<-head(files)
+file_names<- str_extract(files_2, "[^_]+")
+names(files_2)<-file_names
+
+lapply(files_2, function(x){
+  a<-names(x)
+  a
+
+})
+```
+for violin
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1","DNMT3B1","WT","WT")
+
+for(i in 9:10){
+  a<-readRDS(file = paste("../data/raw_data/CpG/", sample_names[i],"_mCpG.rds" ,sep=""))
+  a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>9 & a$T<101]
+  plot<-a%>%as.data.frame() %>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq))+geom_violin(trim = FALSE)+ labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+theme_classic() +scale_fill_manual(values= wes_palette("GrandBudapest2", n = 4)) + stat_summary(fun.y=mean, geom="point", shape=23, size=2) + stat_summary(fun.y=median, geom="point", size=2, color="red")
+  ggsave(paste0("../figures/CpG_average_ofCGN/violin/", sample_names[i], ".png"), plot = plot)
+  plot
+}
+
+#a%>%as.data.frame() %>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq))+geom_violin()+ labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+theme_classic() +scale_fill_manual(values= wes_palette("GrandBudapest2", n = 4)) + stat_summary(fun.y=median, geom="point", shape=23, size=2) 
+
+#a%>%as.data.frame() %>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq))+geom_violin(trim = FALSE)+ labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+theme_classic() +scale_fill_manual(values= wes_palette("GrandBudapest2", n = 4)) + stat_summary(fun.y=mean, geom="point", shape=23, size=2) + stat_summary(fun.y=median, geom="point", size=2, color="red")
+```
+
+```{r}
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/processed/CHH_mean/CHH_number_of_high/", sample_names[i],".rds" ,sep=""))
+  a<-rename(a, CHH_seq=name)
+  a$CHH_seq<- factor(a$CHH_seq, levels=c("CAA","CAG","CCA","CCG","CGA","CGG","CTA","CTG","CAT","CAC","CCT","CCC","CGT","CGC","CTT","CTC"))
+  plot<-a %>%filter(!CHH_seq %in% c("CGA", "CGG","CGC","CGT")) %>% ggplot(aes(x=CHH_seq, y= number, fill=CHH_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+theme_classic() +scale_fill_manual(values= c("blue","blue","blue","blue","blue","blue","red","red","red","red","red","red"))
+  ggsave(paste0("../figures/CHH_average_ofCHH/number_above_point9/onlytwocolours/", sample_names[i], ".png"), plot = plot)
+  plot
+}
+```
+
+
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1","DNMT3B1","WT","WT")
+
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/raw_data/CpG/", sample_names[i],"_mCpG.rds" ,sep=""))
+  a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>9 & a$T<101]
+  plot<-a%>%as.data.frame() %>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+theme_classic() +scale_fill_manual(values= wes_palette("GrandBudapest2", n = 4))
+  ggsave(paste0("../figures/CpG_average_ofCGN/", sample_names[i], ".png"), plot = plot)
+  plot
+}
+```
+
+```{r}
+CHH<-readRDS("../data/raw_data/CHH/GSM2533056_chr1.rds")
+CHH_filtered<- CHH[CHH$T>9 &CHH$T<101]
+a<-CHH_filtered %>% as.tibble()
+a<-rename(a, CHH_seq=CGN_seq)
+a$CHH_seq<- factor(a$CHH_seq, levels=c("CAA","CAG","CCA","CCG","CGA","CGG","CTA","CTG","CAT","CAC","CCT","CCC","CGT","CGC","CTT","CTC"))
+
+plot<-a%>%filter(!CHH_seq %in% c("CGA", "CGG","CGC","CGT"))%>%as.data.frame() %>% ggplot(aes(x=CHH_seq, y= score, fill=CHH_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = "test")+scale_fill_manual(values= c("blue","blue","blue","blue","blue","blue","red","red","red","red","red","red"))+theme_minimal()
+
+plot<-a%>%filter(!CHH_seq %in% c("CGA", "CGG","CGC","CGT"))%>%as.data.frame() %>% ggplot(aes(x=CHH_seq, y= score, fill=CHH_seq))+geom_violin(trim = FALSE)+ labs(x="", y="Methylation score", fill="", title = "")+theme_classic() +scale_fill_manual(values= wes_palette("GrandBudapest2", n = 4)) + stat_summary(fun.y=mean, geom="point", shape=23, size=2) + stat_summary(fun.y=median, geom="point", size=2, color="red")
+```
+```{r}
+CHH<-readRDS("../data/processed/CHH_mean/filtered_by_point8_WTmeth/GSM4594635.rds")
+CHH_filtered<- CHH[CHH$T>9 &CHH$T<101]
+a<-CHH_filtered %>% as.tibble()
+a$CGN_seq<- factor(a$CGN_seq, levels=c("CAA","CAG","CCA","CCG","CGA","CGG","CTA","CTG","CAT","CAC","CCT","CCC","CGT","CGC","CTT","CTC"))
+plot<-a%>%as.data.frame() %>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = )+theme_classic() 
+plot
+```
+
+
+```{r}
+plot<-a%>%as.data.frame() %>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq))+geom_boxplot(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = )+theme_classic() 
+```
+
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748")
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1","DNMT3B1")
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/processed/CHH_mean/filtered_by_point8_WTmeth/", sample_names[i],".rds" ,sep=""))
+  #a<-rename(a, CHH_seq=name)
+  a<- a[a$T>9 & a$T<101]
+  a$CGN_seq<- factor(a$CGN_seq, levels=c("CAA","CAG","CCA","CCG","CGA","CGG","CTA","CTG","CAT","CAC","CCT","CCC","CGT","CGC","CTT","CTC"))
+  plot<-a %>% as.data.frame()%>%filter(!CGN_seq %in% c("CGA", "CGG","CGC","CGT")) %>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+theme_classic() +scale_fill_manual(values= c("blue","blue","blue","blue","blue","blue","red","red","red","red","red","red"))
+  ggsave(paste0("../figures/CHH_average_ofCHH/filter_byWT/onlytwocolours/", sample_names[i], ".png"), plot = plot)
+  plot
+}
+```
+Different way of plotting
+
+```{r}
+library(ggthemes)
+library(tidyverse)
+library(tidyquant)
+library(ggdist)
+
+plot2<-a %>% as.data.frame()%>%filter(!CGN_seq %in% c("CGA", "CGG","CGC","CGT")) %>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq)) +
+  
+ # add half-violin from {ggdist} package
+  stat_halfeye(
+    # adjust bandwidth
+    adjust = 0.5,
+    # move to the right
+    justification = -0.2,
+    # remove the slub interval
+    .width = 0,
+    point_colour = NA
+  ) +
+  geom_boxplot(
+    width = 0.12,
+    # removing outliers
+    outlier.color = NA,
+    alpha = 0.5
+  ) +
+  stat_dots(
+    # ploting on left side
+    side = "left",
+    # adjusting position
+    justification = 1.1,
+    # adjust grouping (binning) of observations
+    binwidth = 0.05
+  )+
+  # Themes and Labels
+  scale_fill_tq() +
+  theme_tq() 
+ggsave("../../../Desktop/test.png")
+```
+
+```{r}
+
+a$CGN_seq<- factor(a$CGN_seq, levels=c("CAA","CAG","CCA","CCG","CGA","CGG","CTA","CTG","CAT","CAC","CCT","CCC","CGT","CGC","CTT","CTC"))
+a %>% as.data.frame()%>%filter(!CGN_seq %in% c("CGA", "CGG","CGC","CGT")) %>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq)) +
+  
+ # add half-violin from {ggdist} package
+  stat_halfeye(
+    # adjust bandwidth
+    adjust = 0.5,
+    # move to the right
+    justification = -0.2,
+    # remove the slub interval
+    .width = 0,
+    point_colour = NA
+  ) +
+  geom_boxplot(
+    width = 0.12,
+    # removing outliers
+    outlier.color = NA,
+    alpha = 0.5
+  ) +
+  stat_dots(
+    # ploting on left side
+    side = "left",
+    position = "jitter",
+    # adjusting position
+    justification = 1.1,
+    dotsize = 0.05,
+    # adjust grouping (binning) of observations
+    binwidth = 0.05,
+    inherit.aes = TRUE,
+    aes(color = "purple")
+  )+
+  # Themes and Labels
+  scale_fill_tq() +
+  theme_tq() 
+```
+```{r}
+library(ggplot2)
+library(ggdist)
+library(tidyverse)
+
+a$CGN_seq <- factor(a$CGN_seq, levels=c("CAA","CAG","CCA","CCG","CGA","CGG","CTA","CTG","CAT","CAC","CCT","CCC","CGT","CGC","CTT","CTC"))
+
+a %>% 
+  as.data.frame() %>% 
+  filter(!CGN_seq %in% c("CGA", "CGG","CGC","CGT")) %>% 
+  ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq)) +
+  # add half-violin from {ggdist} package
+  stat_halfeye(
+    # adjust bandwidth
+    adjust = 0.5,
+    # move to the right
+    justification = -0.2,
+    # remove the slub interval
+    .width = 0,
+    point_colour = NA
+  ) +
+  geom_boxplot(
+    width = 0.12,
+    # removing outliers
+    outlier.color = NA,
+    alpha = 0.5
+  ) +
+  stat_dots(
+    # ploting on left side
+    side = "left",
+    position = position_jitter(width = 0.1),
+    # adjusting position
+    justification = 1.1,
+    dotsize = 0.05,
+    # adjust grouping (binning) of observations
+    binwidth = 0.05,
+    inherit.aes = TRUE,
+    aes(fill = CGN_seq)
+  ) +
+  # Themes and Labels
+  scale_fill_manual(values = c("#F8766D", "#A3A500", "#00BF7D", "#00B0F6", "#E76BF3", "#FF7F00", "#FCBF1E", "#999999", "#E7CB94", "#56B4E9", "#009E73", "#0072B2", "#D55E00", "#CC79A7", "#F0E442", "#0072B2")) + # Set your desired colors here
+  scale_color_identity() +
+  scale_fill_tq() +
+  theme_tq()
+
+```
+
+Try with CpG
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/raw_data/CpG/", sample_names[i],"_mCpG.rds" ,sep=""))
+  a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>9 & a$T<101]
+library(ggplot2)
+library(ggdist)
+library(tidyverse)
+library(ggthemes)
+library(tidyverse)
+library(tidyquant)
+library(ggdist)
+
+a$CGN_seq <- factor(a$CGN_seq, levels=c("CAA","CAG","CCA","CCG","CGA","CGG","CTA","CTG","CAT","CAC","CCT","CCC","CGT","CGC","CTT","CTC"))
+
+a %>% 
+  as.data.frame() %>% 
+  filter(score>0) %>% 
+  ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq)) +
+  # add half-violin from {ggdist} package
+  stat_halfeye(
+    # adjust bandwidth
+    adjust = 0.5,
+    # move to the right
+    justification = -0.2,
+    # remove the slub interval
+    .width = 0,
+    point_colour = NA
+  ) +
+  geom_boxplot(
+    width = 0.12,
+    # removing outliers
+    outlier.color = NA,
+    alpha = 0.5
+  ) +
+  #stat_dots(
+    # ploting on left side
+  #  side = "left",
+  #  position = position_jitter(width = 0.1),
+    # adjusting position
+  #  justification = 1.1,
+  #  dotsize = 0.05,
+    # adjust grouping (binning) of observations
+  #  binwidth = 0.05,
+  #  inherit.aes = TRUE,
+  #  aes(fill = CGN_seq)
+  #) 
+  # Themes and Labels
+  #scale_fill_manual(values = c("#F8766D", "#A3A500", "#00BF7D", "#00B0F6", "#E76BF3", "#FF7F00", "#FCBF1E", "#999999", "#E7CB94", "#56B4E9", "#009E73", "#0072B2", "#D55E00", "#CC79A7", "#F0E442", "#0072B2")) + # Set your desired colors here
+  #scale_color_identity() +
+  scale_fill_tq() +
+  theme_tq()
+
+  plot<-a%>%as.data.frame() %>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = sample_names[i])+theme_minimal() +scale_fill_manual(values = c("#332288","#117733" ,"#88CCEE","#44AA99"))
+  png(paste0("../figures/CpG_average_perCGN/", sample_names[i], ".png"), width = 1200, height = 700, res=300 )
+  print(plot)
+  dev.off()
+  
+}
+```
+
+```{r}
+a %>% 
+  as.data.frame() %>% 
+  filter(score>0) %>% 
+  ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq)) +
+  # add half-violin from {ggdist} package
+  stat_halfeye(
+    # adjust bandwidth
+    adjust = 0.5,
+    # move to the right
+    justification = -0.2,
+    # remove the slub interval
+    .width = 0,
+    point_colour = NA
+  ) +
+  geom_boxplot(
+    width = 0.12,
+    # removing outliers
+    outlier.color = NA,
+    alpha = 0.5
+  ) +
+  geom_jitter(
+    # ploting on left side
+    side = "left",
+    position = position_jitter(width = 0.1),
+    # adjusting position
+    justification = 1.1,
+    dotsize = 0.05,
+    # adjust grouping (binning) of observations
+    binwidth = 0.05,
+    inherit.aes = TRUE,
+    aes(fill = CGN_seq)
+  )+ 
+  # Themes and Labels
+  #scale_fill_manual(values = c("#F8766D", "#A3A500", "#00BF7D", "#00B0F6", "#E76BF3", "#FF7F00", "#FCBF1E", "#999999", "#E7CB94", "#56B4E9", "#009E73", "#0072B2", "#D55E00", "#CC79A7", "#F0E442", "#0072B2")) + # Set your desired colors here
+  #scale_color_identity() +
+  scale_fill_tq() +
+  theme_tq()
+```
+
+```{r}
+"#4e79a7"
+"#a83232"
+"#6f5090"
+"#ffa64d"
+```
+

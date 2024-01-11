@@ -1,0 +1,37 @@
+---
+title: "look at chh"
+author: "Amalia"
+date: "2023-06-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load the libraries
+```{r, echo=FALSE}
+library(GenomicRanges)
+library(BSgenome.Mmusculus.UCSC.mm9)
+library(tidyverse)
+library(plyranges)
+```
+
+```{r}
+CHH<-readRDS("../data/raw_data/CHH/GSM1382253_chr1.rds_mCHH.rds")
+
+CHH_filtered<- CHH[CHH$'_T'>9 &CHH$'_T'<101]
+
+CHH<-CHH_filtered %>%  as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","_T","_M","score", "CGN_seq")) %>% makeGRangesFromDataFrame(keep.extra.columns = TRUE)
+
+CHH %>% as.data.frame() %>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = "DNMT3A_GSM1382253")+theme_minimal() 
+
+#+scale_fill_manual(values = c("#FFCCCB","#99CCFF","#8B0000" ,"#293352"))
+
+  
+
+
+
+
+```
+

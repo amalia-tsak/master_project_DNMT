@@ -1,0 +1,130 @@
+---
+title: "get_top_meth_in CHH"
+author: "Amalia"
+date: "2023-11-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+Load packages
+```{r}
+library(GenomicRanges)
+library(tidyverse)
+#library (purrr)
+library(plyranges)
+#library(rlist)
+library(ggvenn)
+library(UpSetR)
+```
+Get from every chromosome the top 1 % meth 
+
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+
+Total_chr  <-  c(paste("chr", 1:19, sep=''), 'chrX','chrY')
+
+
+#test<-data.frame() #empty dataframe to add to inside the loop
+for(i in 1:10){
+  test<-GRanges() #empty dataframe to add to inside the loop
+  for(j in 1:21){
+    a<-readRDS(file = paste0("../data/raw_data/CHH/", sample_names[i],"_", Total_chr[j],".rds"))
+    a<- a[a$T>9 & a$T<101] #filter each file
+    a<- a %>% filter(score >0)
+    a<-a %>% plyranges::filter(CGN_seq!="CNN") #filter out locations where we dont hav ethe trinucleotide sequence
+    a$rank<-rank(-a$score)#Rank references the position of the value in the sorted vector and is in the same order as the original sequence 
+  ###NOTE we now want the opposite preference so we put 
+  #most positive will be rank1 
+  #negatives have a pyrimidine preference 
+  #positives purine preference
+  t<-round(nrow(a)*0.01) # find n for top 1 %
+  d<-a %>% arrange(rank) #rearrange df to have lowest rank (ie biggest difference on top)
+  max_rank<-d[t,]$rank #extract the rank at the position of 1%
+  #we want to keep everything up to that rank 
+  e<- d %>% filter(rank<=max_rank)
+   # avg<- a %>% group_by(CGN_seq) %>% summarise(avg_meth=mean(score)) #get average of each CHH
+    #num<- a %>% group_by(CGN_seq) %>% summarise(C_num=plyranges::n()) #get number of each CHH
+  #  df<-merge(avg,num, by="CGN_seq") 
+   # df$times<-df$avg_meth*df$C_num #multiply 
+    #num<-num%>% as_tibble() %>%  pivot_wider(names_from =  CGN_seq,values_from = C_num) #wide format 
+  
+    test<-bind_ranges(test,e) #merge every chromosome (it adds NA when a column is missing from one of the two)
+    
+    #test[is.na(test)] = 0 #replace NAs wth 0
+    
+  }
+
+saveRDS(test,file=paste0("../data/processed/CHH_mean/top1%methylated/", sample_names[i], ".rds"))#save the table created for this sample
+}
+```
+
+NEW approach, get the CHH that are at least 80% methylated in the WT (the GSM748786 sample cause it has better coverage)
+```{r}
+Total_chr  <-  c(paste("chr", 1:19, sep=''), 'chrX','chrY')
+
+
+#test<-data.frame() #empty dataframe to add to inside the loop
+
+  test<-GRanges() #empty dataframe to add to inside the loop
+  for(j in 1:21){
+    a<-readRDS(file = paste0("../data/raw_data/CHH/GSM748786_", Total_chr[j],".rds"))
+    a<- a[a$T>9 & a$T<101] #filter each file
+    a<- a %>% filter(score >0.8)
+    a<-a %>% plyranges::filter(CGN_seq!="CNN") #filter out locations where we dont hav ethe trinucleotide sequence
+    #we should now have ranges where CHH is above 0.8 methylated
+    test<-bind_ranges(test,a)
+  }
+
+#saveRDS(test,file=paste0("../data/processed/CHH_mean/top1%methylated/", sample_names[i], ".rds"))#save the table created for this sample
+#plot<-test %>% as.data.frame() %>%filter(!CGN_seq %in% c("CGA", "CGG","CGC","CGT")) %>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+theme_classic() 
+
+table(test$CGN_seq)
+
+#use this to filter out CHH
+
+```
+Filter out TKO+addback samples based on the granges object that holds 
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748")
+
+Total_chr  <-  c(paste("chr", 1:19, sep=''), 'chrX','chrY')
+
+#test<-data.frame() #empty dataframe to add to inside the loop
+for(i in 1:8){
+  filtered<-GRanges() #empty dataframe to add to inside the loop
+  for(j in 1:21){
+    a<-readRDS(file = paste0("../data/raw_data/CHH/", sample_names[i],"_", Total_chr[j],".rds"))
+    #a<- a[a$T>9 & a$T<101] #filter each file we ll filter before plotting 
+    b<-subsetByOverlaps(a, test)
+    b<-b %>% plyranges::filter(CGN_seq!="CNN") #filter out locations where we dont hav ethe trinucleotide sequence
+    
+    #a$rank<-rank(-a$score)#Rank references the position of the value in the sorted vector and is in the same order as the original sequence 
+  ###NOTE we now want the opposite preference so we put 
+  #most positive will be rank1 
+  #negatives have a pyrimidine preference 
+  #positives purine preference
+  #t<-round(nrow(a)*0.01) # find n for top 1 %
+  #d<-a %>% arrange(rank) #rearrange df to have lowest rank (ie biggest difference on top)
+  #max_rank<-d[t,]$rank #extract the rank at the position of 1%
+  #we want to keep everything up to that rank 
+  #e<- d %>% filter(rank<=max_rank)
+   # avg<- a %>% group_by(CGN_seq) %>% summarise(avg_meth=mean(score)) #get average of each CHH
+    #num<- a %>% group_by(CGN_seq) %>% summarise(C_num=plyranges::n()) #get number of each CHH
+  #  df<-merge(avg,num, by="CGN_seq") 
+   # df$times<-df$avg_meth*df$C_num #multiply 
+    #num<-num%>% as_tibble() %>%  pivot_wider(names_from =  CGN_seq,values_from = C_num) #wide format 
+  
+    filtered<-bind_ranges(filtered,b) #merge every chromosome (it adds NA when a column is missing from one of the two)
+    
+    #test[is.na(test)] = 0 #replace NAs wth 0
+    
+  }
+
+saveRDS(filtered,file=paste0("../data/processed/CHH_mean/filtered_by_point8_WTmeth/", sample_names[i], ".rds"))#save the table created for this sample
+}
+
+ #b<-subsetByOverlaps(b, test)
+```
+

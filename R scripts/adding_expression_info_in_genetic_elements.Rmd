@@ -1,0 +1,557 @@
+---
+title: "adding information about expression in our genetic elements"
+author: "Amalia"
+date: '2023-11-10'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(GenomicRanges)
+library(readr) #part of tidyverse
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+```
+
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786")
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1","WT") #I have to use these as names as well
+```
+
+Load the tpm values
+```{r}
+tpm_merged<-read_tsv('../salmon.merged.gene_tpm.tsv')
+head(tpm_merged)
+
+```
+convert the entrez ids that you get from the txdb package to gene names/symbols
+```{r}
+#symbolbyid<-AnnotationDbi::select(org.Mm.eg.db,tpm_merged$gene_id,"SYMBOL", "ENTREZID")
+symbolbyid<-AnnotationDbi::select(org.Mm.eg.db,tpm_merged$gene_id, "ENTREZID","SYMBOL")
+sum(is.na(symbolbyid$ENTREZID))
+symbol_na<-symbolbyid %>% filter(is.na(ENTREZID))
+symbol_by_id_nona<-symbolbyid %>% filter(!is.na(ENTREZID))
+symbolbyalias<-AnnotationDbi::select(org.Mm.eg.db,symbol_na$SYMBOL, "ENTREZID","ALIAS")
+sum(is.na(symbolbyalias$ENTREZID))
+
+symbolalias_onlyone<-symbolbyalias %>% distinct(ALIAS,.keep_all = TRUE)
+symbol_by_alias_nona<-symbolalias_onlyone %>% filter(!is.na(ENTREZID)) %>% rename(SYMBOL=ALIAS)
+
+symbols_to_merge<-rbind(symbol_by_id_nona,symbol_by_alias_nona) %>% rename(gene_name=SYMBOL)
+
+#now cbind tmp with 
+new_tpm<-left_join(symbols_to_merge,tpm_merged)
+```
+
+```{r}
+#length(unique(gene_names$gene_id))
+#length(symbolbyid$ENTREZID) # so we should keep only the unique ones
+#length(unique(symbolbyid$ENTREZID))
+#length(unique(symbolbyid$SYMBOL))
+#sum(is.na(symbolbyid$SYMBOL))
+#symbolbyid<-distinct(symbolbyid) #no duplicates now
+
+
+#kala<-tibble(x=c(1,2,2,3),y=c(1,1,4,5))
+#kala %>% distinct(x,.keep_all = TRUE)
+#kala
+```
+
+
+add a column indicating in which category the gene falls into.
+First we have to declare a limit over which the gene is considered to be active. 
+We ll find this limit from the distribution of our tpm values in log2 transformed axis 
+```{r}
+data_long<-tpm_merged%>%pivot_longer(cols =starts_with("RNA")) %>% as.data.frame()
+data_long%>%ggplot(aes(x=value, colour=name)) +geom_density() +scale_x_continuous(trans = 'log2',labels = scales::comma)
+data_long%>%ggplot(aes(x=value, colour=name)) +geom_density() +scale_x_continuous(trans = 'log2',labels = scales::comma, breaks = c(0.01,0.5,2,1000))+theme_minimal()
+data_long%>%ggplot(aes(x=value, colour=name)) +geom_density() +scale_x_continuous(trans = 'log2',labels = scales::comma, breaks = c(0.25,0.5,1,2,4))+coord_cartesian(xlim = c(0.1,8)) 
+data_long%>%ggplot(aes(x=value, colour=name)) +geom_density() +scale_x_continuous(trans = 'log2',labels = scales::comma)+coord_cartesian(xlim = c(0.1,8)) 
+
+data_long%>%ggplot(aes(log2(x=value), colour=name)) +geom_density() +theme_minimal()
+```
+
+annotatte new_tpm according to the values. We will add a column saying wheteher tey are active in WT and one saying wether they are active in TKO
+```{r}
+new_tpm<-new_tpm %>% mutate(TKO_expressed=case_when(RNA_TKO_1>=0.5 &RNA_TKO_2>=0.5 & RNA_TKO_3>=0.5 ~"YES",TRUE ~"NO"), WT_expressed=case_when(RNA_WT_1>=0.5 &RNA_WT_2>=0.5 & RNA_WT_3>=0.5 ~"YES",TRUE ~"NO"))
+
+new_tpm<-new_tpm %>% dplyr::select(-c("gene_id")) %>% rename(gene_id=ENTREZID)
+
+new_tpm_only_important<-new_tpm %>% dplyr::select(gene_id,TKO_expressed,WT_expressed)
+
+new_tpm_only_important %>% filter(TKO_expressed=="YES")
+new_tpm_only_important %>% filter(WT_expressed=="YES")
+new_tpm_only_important %>% filter(TKO_expressed=="YES" & WT_expressed=="NO")
+new_tpm_only_important %>% filter(WT_expressed=="YES" & TKO_expressed=="NO")
+```
+
+```{r}
+c<-readRDS(file=paste0("../data/processed/Annotation of genomic elements/promoters/", sample_names[i], ".RDS"))
+
+get_expre<-inner_join(c,new_tpm_only_important)
+```
+
+##promoters CG 
+
+#TEST FOR EXPRESSION
+```{r}
+test_promoters_cg<-data.frame() #empty dataframe to add to inside the loop
+for(i in 1:7){
+c<-readRDS(file=paste0("../data/processed/Annotation of genomic elements/promoters/", sample_names[i], ".RDS"))
+c<-c %>% filter(CG_num>4)
+c<-c %>% filter(avg_meth>0)
+c<-c %>% filter(!is.na(Purine_num) & !is.na(Pyrimidine_num)) #have at least one from both
+c<- c %>% filter(Purine_num>1 & Pyrimidine_num>1)
+c<-c %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+c<-c %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  #now create col with ratio of those two
+c <-c %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+options(scipen = 999)# to avoid scientific notation
+c<-c %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr)) 
+
+#mutate to have ratio of number occurance
+c<-c %>% mutate(Purine_num_mod = Purine_num + 0.01)
+c<-c %>% mutate(Pyrimidine_num_mod = Pyrimidine_num + 0.01)
+  #now create col with ratio of those two
+c <-c %>% mutate(ratio_pur_pyr_num = Purine_num_mod / Pyrimidine_num_mod)
+options(scipen = 999)# to avoid scientific notation
+c<-c %>% mutate(ratio_purpyr_num_log = log2(ratio_pur_pyr_num)) 
+c<-inner_join(c,new_tpm_only_important)
+
+d<-c %>% mutate(sample_name = sample_names[i])
+d<-d %>% mutate(addback= addback[i])
+test_promoters_cg<-rbind(test_promoters_cg,d)
+}
+test_promoters_cg$sample_name<- factor(test_promoters_cg$sample_name, levels=c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786"))
+```
+
+
+```{r}
+test_promoters_cg  %>% filter(addback=="DNMT3A1"|addback=="DNMT3A2"|addback=="DNMT3B1")  %>% filter (WT_expressed=="YES") %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "Promoters of genes that are expressed", x="") +scale_colour_manual(values = c("#4e79a7","#4e79a7","#4e79a7","#a83232" ,"#a83232","#a83232"))+theme(axis.text.x=element_text(size=14, face = "bold"), axis.text.y=element_text(size=14, face = "bold"))
+ggsave(paste0("../figures/Figures_for_report/distributions_of_genomic_elements/CG/expressed_ornot/PromotersExpressed.png"))
+
+test_promoters_cg  %>% filter(addback=="DNMT3A1"|addback=="DNMT3A2"|addback=="DNMT3B1")  %>% filter (WT_expressed=="NO") %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "Promoters of genes that are not expressed", x="") +scale_colour_manual(values = c("#4e79a7","#4e79a7","#4e79a7","#a83232" ,"#a83232","#a83232"))+theme(axis.text.x=element_text(size=14, face = "bold"), axis.text.y=element_text(size=14, face = "bold"))
+ggsave(paste0("../figures/Figures_for_report/distributions_of_genomic_elements/CG/expressed_ornot/PromotersNOTExpressed.png"))
+
+
+```
+
+
+
+```{r}
+test_introns_cg<-data.frame() #empty dataframe to add to inside the loop
+for(i in 1:7){
+c<-readRDS(file=paste0("../data/processed/Annotation of genomic elements/introns_of_one_gene/", sample_names[i], ".RDS"))
+c<-c %>% filter(CG_num>4)
+c<-c %>% filter(avg_meth>0)
+c<-c %>% filter(!is.na(Purine_num) & !is.na(Pyrimidine_num)) #have at least one from both
+c<- c %>% filter(Purine_num>1 & Pyrimidine_num>1)
+c<-c %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+c<-c %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  #now create col with ratio of those two
+c <-c %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+options(scipen = 999)# to avoid scientific notation
+c<-c %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr)) 
+
+#mutate to have ratio of number occurance
+c<-c %>% mutate(Purine_num_mod = Purine_num + 0.01)
+c<-c %>% mutate(Pyrimidine_num_mod = Pyrimidine_num + 0.01)
+  #now create col with ratio of those two
+c <-c %>% mutate(ratio_pur_pyr_num = Purine_num_mod / Pyrimidine_num_mod)
+options(scipen = 999)# to avoid scientific notation
+c<-c %>% mutate(ratio_purpyr_num_log = log2(ratio_pur_pyr_num)) 
+c<-inner_join(c,new_tpm_only_important)
+
+d<-c %>% mutate(sample_name = sample_names[i])
+d<-d %>% mutate(addback= addback[i])
+test_introns_cg<-rbind(test_introns_cg,d)
+}
+test_introns_cg$sample_name<- factor(test_introns_cg$sample_name, levels=c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786"))
+```
+
+
+
+```{r}
+test_introns_cg  %>% filter(addback=="DNMT3A1"|addback=="DNMT3A2"|addback=="DNMT3B1")  %>% filter (WT_expressed=="YES") %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "Introns of genes that are expressed", x="") +scale_colour_manual(values = c("#4e79a7","#4e79a7","#4e79a7","#a83232" ,"#a83232","#a83232"))+theme(axis.text.x=element_text(size=14, face = "bold"), axis.text.y=element_text(size=14, face = "bold"))
+ggsave(paste0("../figures/Figures_for_report/distributions_of_genomic_elements/CG/expressed_ornot/IntronsExpressed.png"))
+
+test_introns_cg  %>% filter(addback=="DNMT3A1"|addback=="DNMT3A2"|addback=="DNMT3B1")  %>% filter (WT_expressed=="NO") %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "Introns of genes that are not expressed", x="") +scale_colour_manual(values = c("#4e79a7","#4e79a7","#4e79a7","#a83232" ,"#a83232","#a83232"))+theme(axis.text.x=element_text(size=14, face = "bold"), axis.text.y=element_text(size=14, face = "bold"))
+ggsave(paste0("../figures/Figures_for_report/distributions_of_genomic_elements/CG/expressed_ornot/IntronsNOTExpressed.png"))
+```
+
+```{r}
+test_exons_cg<-data.frame() #empty dataframe to add to inside the loop
+for(i in 1:7){
+c<-readRDS(file=paste0("../data/processed/Annotation of genomic elements/exons_of_one_gene/", sample_names[i], ".RDS"))
+c<-c %>% filter(CG_num>4)
+c<-c %>% filter(avg_meth>0)
+c<-c %>% filter(!is.na(Purine_num) & !is.na(Pyrimidine_num)) #have at least one from both
+c<- c %>% filter(Purine_num>1 & Pyrimidine_num>1)
+c<-c %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+c<-c %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  #now create col with ratio of those two
+c <-c %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+options(scipen = 999)# to avoid scientific notation
+c<-c %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr)) 
+
+#mutate to have ratio of number occurance
+c<-c %>% mutate(Purine_num_mod = Purine_num + 0.01)
+c<-c %>% mutate(Pyrimidine_num_mod = Pyrimidine_num + 0.01)
+  #now create col with ratio of those two
+c <-c %>% mutate(ratio_pur_pyr_num = Purine_num_mod / Pyrimidine_num_mod)
+options(scipen = 999)# to avoid scientific notation
+c<-c %>% mutate(ratio_purpyr_num_log = log2(ratio_pur_pyr_num)) 
+c<-inner_join(c,new_tpm_only_important)
+
+d<-c %>% mutate(sample_name = sample_names[i])
+d<-d %>% mutate(addback= addback[i])
+test_exons_cg<-rbind(test_exons_cg,d)
+}
+test_exons_cg$sample_name<- factor(test_exons_cg$sample_name, levels=c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786"))
+```
+
+```{r}
+test_exons_cg  %>% filter(addback=="DNMT3A1"|addback=="DNMT3A2"|addback=="DNMT3B1")  %>% filter (WT_expressed=="YES") %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "Exons of genes that are expressed", x="") +scale_colour_manual(values = c("#4e79a7","#4e79a7","#4e79a7","#a83232" ,"#a83232","#a83232")) +theme(axis.text.x=element_text(size=14, face = "bold"), axis.text.y=element_text(size=14, face = "bold"))
+ggsave(paste0("../figures/Figures_for_report/distributions_of_genomic_elements/CG/expressed_ornot/ExonsExpressed.png"))
+
+test_exons_cg  %>% filter(addback=="DNMT3A1"|addback=="DNMT3A2"|addback=="DNMT3B1")  %>% filter (WT_expressed=="NO") %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "Exons of genes that are not expressed", x="") +scale_colour_manual(values = c("#4e79a7","#4e79a7","#4e79a7","#a83232" ,"#a83232","#a83232")) +theme(axis.text.x=element_text(size=14, face = "bold"), axis.text.y=element_text(size=14, face = "bold"))
+ggsave(paste0("../figures/Figures_for_report/distributions_of_genomic_elements/CG/expressed_ornot/ExonsNOTExpressed.png"))
+```
+
+
+
+
+
+##promoters CG 
+
+#TEST FOR EXPRESSION
+```{r}
+test_promoters_ch<-data.frame() #empty dataframe to add to inside the loop
+for(i in 1:7){
+c<-readRDS(file=paste0("../data/processed/Annotation of genomic elements/CHH/promoters/", sample_names[i], ".RDS"))
+c<-c %>% filter(CG_num>4)
+c<-c %>% filter(avg_meth>0)
+c<-c %>% filter(!is.na(Purine_num) & !is.na(Pyrimidine_num)) #have at least one from both
+c<- c %>% filter(Purine_num>1 & Pyrimidine_num>1)
+c<-c %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+c<-c %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  #now create col with ratio of those two
+c <-c %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+options(scipen = 999)# to avoid scientific notation
+c<-c %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr)) 
+
+#mutate to have ratio of number occurance
+c<-c %>% mutate(Purine_num_mod = Purine_num + 0.01)
+c<-c %>% mutate(Pyrimidine_num_mod = Pyrimidine_num + 0.01)
+  #now create col with ratio of those two
+c <-c %>% mutate(ratio_pur_pyr_num = Purine_num_mod / Pyrimidine_num_mod)
+options(scipen = 999)# to avoid scientific notation
+c<-c %>% mutate(ratio_purpyr_num_log = log2(ratio_pur_pyr_num)) 
+c<-inner_join(c,new_tpm_only_important)
+
+d<-c %>% mutate(sample_name = sample_names[i])
+d<-d %>% mutate(addback= addback[i])
+test_promoters_ch<-rbind(test_promoters_ch,d)
+}
+test_promoters_ch$sample_name<- factor(test_promoters_ch$sample_name, levels=c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786"))
+```
+
+
+```{r}
+test_promoters_ch  %>% filter(addback=="DNMT3A1"|addback=="DNMT3A2"|addback=="DNMT3B1")  %>% filter (WT_expressed=="YES") %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "Promoters of genes that are expressed", x="log2 ratio of methylation in CpHs followed by purine/pyrimidine") +scale_colour_manual(values = c("#4e79a7","#4e79a7","#4e79a7","#a83232" ,"#a83232","#a83232"))
+ggsave(paste0("../figures/Figures_for_report/distributions_of_genomic_elements/CH/expressed_ornot/PromotersExpressed.png"))
+
+test_promoters_ch  %>% filter(addback=="DNMT3A1"|addback=="DNMT3A2"|addback=="DNMT3B1")  %>% filter (WT_expressed=="NO") %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "Promoters of genes that are not expressed", x="log2 ratio of methylation in CpHs followed by purine/pyrimidine") +scale_colour_manual(values = c("#4e79a7","#4e79a7","#4e79a7","#a83232" ,"#a83232","#a83232"))
+ggsave(paste0("../figures/Figures_for_report/distributions_of_genomic_elements/CH/expressed_ornot/PromotersNOTExpressed.png"))
+
+
+```
+
+
+
+```{r}
+test_introns_ch<-data.frame() #empty dataframe to add to inside the loop
+for(i in 1:7){
+c<-readRDS(file=paste0("../data/processed/Annotation of genomic elements/CHH/introns_of_one_gene/", sample_names[i], ".RDS"))
+c<-c %>% filter(CG_num>4)
+c<-c %>% filter(avg_meth>0)
+c<-c %>% filter(!is.na(Purine_num) & !is.na(Pyrimidine_num)) #have at least one from both
+c<- c %>% filter(Purine_num>1 & Pyrimidine_num>1)
+c<-c %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+c<-c %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  #now create col with ratio of those two
+c <-c %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+options(scipen = 999)# to avoid scientific notation
+c<-c %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr)) 
+
+#mutate to have ratio of number occurance
+c<-c %>% mutate(Purine_num_mod = Purine_num + 0.01)
+c<-c %>% mutate(Pyrimidine_num_mod = Pyrimidine_num + 0.01)
+  #now create col with ratio of those two
+c <-c %>% mutate(ratio_pur_pyr_num = Purine_num_mod / Pyrimidine_num_mod)
+options(scipen = 999)# to avoid scientific notation
+c<-c %>% mutate(ratio_purpyr_num_log = log2(ratio_pur_pyr_num)) 
+c<-inner_join(c,new_tpm_only_important)
+
+d<-c %>% mutate(sample_name = sample_names[i])
+d<-d %>% mutate(addback= addback[i])
+test_introns_ch<-rbind(test_introns_ch,d)
+}
+test_introns_ch$sample_name<- factor(test_introns_ch$sample_name, levels=c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786"))
+```
+
+
+
+```{r}
+test_introns_ch  %>% filter(addback=="DNMT3A1"|addback=="DNMT3A2"|addback=="DNMT3B1")  %>% filter (WT_expressed=="YES") %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "Introns of genes that are expressed", x="log2 ratio of methylation in CpHs followed by purine/pyrimidine") +scale_colour_manual(values = c("#4e79a7","#4e79a7","#4e79a7","#a83232" ,"#a83232","#a83232"))
+ggsave(paste0("../figures/Figures_for_report/distributions_of_genomic_elements/CH/expressed_ornot/IntronsExpressed.png"))
+
+test_introns_ch  %>% filter(addback=="DNMT3A1"|addback=="DNMT3A2"|addback=="DNMT3B1")  %>% filter (WT_expressed=="NO") %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "Introns of genes that are not expressed", x="log2 ratio of methylation in CpHs followed by purine/pyrimidine") +scale_colour_manual(values = c("#4e79a7","#4e79a7","#4e79a7","#a83232" ,"#a83232","#a83232"))
+ggsave(paste0("../figures/Figures_for_report/distributions_of_genomic_elements/CH/expressed_ornot/IntronsNOTExpressed.png"))
+```
+
+```{r}
+test_exons_ch<-data.frame() #empty dataframe to add to inside the loop
+for(i in 1:7){
+c<-readRDS(file=paste0("../data/processed/Annotation of genomic elements/CHH/exons_of_one_gene/", sample_names[i], ".RDS"))
+c<-c %>% filter(CG_num>4)
+c<-c %>% filter(avg_meth>0)
+c<-c %>% filter(!is.na(Purine_num) & !is.na(Pyrimidine_num)) #have at least one from both
+c<- c %>% filter(Purine_num>1 & Pyrimidine_num>1)
+c<-c %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+c<-c %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  #now create col with ratio of those two
+c <-c %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+options(scipen = 999)# to avoid scientific notation
+c<-c %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr)) 
+
+#mutate to have ratio of number occurance
+c<-c %>% mutate(Purine_num_mod = Purine_num + 0.01)
+c<-c %>% mutate(Pyrimidine_num_mod = Pyrimidine_num + 0.01)
+  #now create col with ratio of those two
+c <-c %>% mutate(ratio_pur_pyr_num = Purine_num_mod / Pyrimidine_num_mod)
+options(scipen = 999)# to avoid scientific notation
+c<-c %>% mutate(ratio_purpyr_num_log = log2(ratio_pur_pyr_num)) 
+c<-inner_join(c,new_tpm_only_important)
+
+d<-c %>% mutate(sample_name = sample_names[i])
+d<-d %>% mutate(addback= addback[i])
+test_exons_ch<-rbind(test_exons_ch,d)
+}
+test_exons_ch$sample_name<- factor(test_exons_ch$sample_name, levels=c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786"))
+```
+
+```{r}
+test_exons_ch  %>% filter(addback=="DNMT3A1"|addback=="DNMT3A2"|addback=="DNMT3B1")  %>% filter (WT_expressed=="YES") %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "Exons of genes that are expressed", x="log2 ratio of methylation in CpHs followed by purine/pyrimidine") +scale_colour_manual(values = c("#4e79a7","#4e79a7","#4e79a7","#a83232" ,"#a83232","#a83232"))
+ggsave(paste0("../figures/Figures_for_report/distributions_of_genomic_elements/CH/expressed_ornot/ExonsExpressed.png"))
+
+test_exons_ch  %>% filter(addback=="DNMT3A1"|addback=="DNMT3A2"|addback=="DNMT3B1")  %>% filter (WT_expressed=="NO") %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "Exons of genes that are not expressed", x="log2 ratio of methylation in CpHs followed by purine/pyrimidine") +scale_colour_manual(values = c("#4e79a7","#4e79a7","#4e79a7","#a83232" ,"#a83232","#a83232"))
+ggsave(paste0("../figures/Figures_for_report/distributions_of_genomic_elements/CH/expressed_ornot/ExonsNOTExpressed.png"))
+```
+
+INFO FOR REP ELE
+```{r}
+repetitive<-readRDS("../data/repeat.instance.gr.rds")
+```
+
+```{r}
+library(plyranges)
+repetitive_info<-repetitive %>% as.data.frame()%>% as.data.frame() %>% select(c("names","E_class")) 
+
+```
+
+##RE CG 
+
+```{r}
+test_RE_cg<-data.frame() #empty dataframe to add to inside the loop
+for(i in 1:7){
+c<-readRDS(file=paste0("../data/processed/Annotation of genomic elements/RE/", sample_names[i], ".RDS"))
+c<-c %>% filter(CG_num>4)
+c<-c %>% filter(avg_meth>0)
+c<-c %>% filter(!is.na(Purine_num) & !is.na(Pyrimidine_num)) #have at least one from both
+c<- c %>% filter(Purine_num>1 & Pyrimidine_num>1)
+c<-c %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+c<-c %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  #now create col with ratio of those two
+c <-c %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+options(scipen = 999)# to avoid scientific notation
+c<-c %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr)) 
+
+#mutate to have ratio of number occurance
+c<-c %>% mutate(Purine_num_mod = Purine_num + 0.01)
+c<-c %>% mutate(Pyrimidine_num_mod = Pyrimidine_num + 0.01)
+  #now create col with ratio of those two
+c <-c %>% mutate(ratio_pur_pyr_num = Purine_num_mod / Pyrimidine_num_mod)
+options(scipen = 999)# to avoid scientific notation
+c<-c %>% mutate(ratio_purpyr_num_log = log2(ratio_pur_pyr_num)) 
+
+c<-left_join(c,repetitive_info)
+
+d<-c %>% mutate(sample_name = sample_names[i])
+d<-d %>% mutate(addback= addback[i])
+test_RE_cg<-rbind(test_RE_cg,d)
+}
+test_RE_cg$sample_name<- factor(test_RE_cg$sample_name, levels=c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786"))
+```
+
+
+```{r}
+test_RE_cg  %>% filter(addback=="DNMT3A1"|addback=="DNMT3A2"|addback=="DNMT3B1")  %>% filter (WT_expressed=="NO") %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "Exons of genes that are expressed", x="log2 ratio of methylation in CpHs followed by purine/pyrimidine") +scale_colour_manual(values = c("#4e79a7","#4e79a7","#4e79a7","#a83232" ,"#a83232","#a83232"))
+ggsave(paste0("../figures/Figures_for_report/distributions_of_genomic_elements/CH/expressed_ornot/ExonsNOTExpressed.png"))
+
+
+test_RE_cg  %>% filter(addback=="DNMT3A1"|addback=="DNMT3A2"|addback=="DNMT3B1")  %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density()  + facet_wrap(~E_class)+theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "Exons of genes that are expressed", x="log2 ratio of methylation in CpHs followed by purine/pyrimidine") +scale_colour_manual(values = c("#4e79a7","#4e79a7","#4e79a7","#a83232" ,"#a83232","#a83232"))
+
+test_RE_cg  %>% filter(addback=="DNMT3A1"|addback=="DNMT3A2")  %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density()  + facet_wrap(~E_class)+theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "DNMT3A", x="log2 ratio of methylation in CpHs followed by purine/pyrimidine") +scale_colour_manual(values = c("#4e79a7","#a83232" ,"#ffa64d"))
+
+suppressWarnings(print(test_RE_cg  %>% filter(addback=="DNMT3B1")  %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density()  + facet_wrap(~E_class)+theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "DNMT3B", x="log2 ratio of methylation in CpHs followed by purine/pyrimidine") +scale_colour_manual(values = c("#4e79a7","#a83232" ,"#ffa64d"))))
+
+test_RE_cg  %>% filter(addback=="WT")  %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density()  + facet_wrap(~E_class)+theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "WT", x="log2 ratio of methylation in CpHs followed by purine/pyrimidine") +scale_colour_manual(values = c("#4e79a7","#a83232" ,"#ffa64d"))
+```
+
+
+##RE CG 
+
+```{r}
+test_RE_ch<-data.frame() #empty dataframe to add to inside the loop
+for(i in 1:7){
+c<-readRDS(file=paste0("../data/processed/Annotation of genomic elements/CHH/RE/", sample_names[i], ".RDS"))
+c<-c %>% filter(CG_num>4)
+c<-c %>% filter(avg_meth>0)
+c<-c %>% filter(!is.na(Purine_num) & !is.na(Pyrimidine_num)) #have at least one from both
+c<- c %>% filter(Purine_num>1 & Pyrimidine_num>1)
+c<-c %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+c<-c %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  #now create col with ratio of those two
+c <-c %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+options(scipen = 999)# to avoid scientific notation
+c<-c %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr)) 
+
+#mutate to have ratio of number occurance
+c<-c %>% mutate(Purine_num_mod = Purine_num + 0.01)
+c<-c %>% mutate(Pyrimidine_num_mod = Pyrimidine_num + 0.01)
+  #now create col with ratio of those two
+c <-c %>% mutate(ratio_pur_pyr_num = Purine_num_mod / Pyrimidine_num_mod)
+options(scipen = 999)# to avoid scientific notation
+c<-c %>% mutate(ratio_purpyr_num_log = log2(ratio_pur_pyr_num)) 
+
+c<-left_join(c,repetitive_info)
+
+d<-c %>% mutate(sample_name = sample_names[i])
+d<-d %>% mutate(addback= addback[i])
+test_RE_ch<-rbind(test_RE_ch,d)
+}
+test_RE_ch$sample_name<- factor(test_RE_ch$sample_name, levels=c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786"))
+```
+
+
+```{r}
+test_RE_cg  %>% filter(addback=="DNMT3A1"|addback=="DNMT3A2"|addback=="DNMT3B1")  %>% filter (WT_expressed=="NO") %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "Exons of genes that are expressed", x="log2 ratio of methylation in CpHs followed by purine/pyrimidine") +scale_colour_manual(values = c("#4e79a7","#4e79a7","#4e79a7","#a83232" ,"#a83232","#a83232"))
+ggsave(paste0("../figures/Figures_for_report/distributions_of_genomic_elements/CH/expressed_ornot/ExonsNOTExpressed.png"))
+
+
+test_RE_ch  %>% filter(addback=="DNMT3A1"|addback=="DNMT3A2"|addback=="DNMT3B1")  %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density()  + facet_wrap(~E_class)+theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "Exons of genes that are expressed", x="log2 ratio of methylation in CpHs followed by purine/pyrimidine") +scale_colour_manual(values = c("#4e79a7","#4e79a7","#4e79a7","#a83232" ,"#a83232","#a83232"))
+
+
+test_RE_ch  %>% filter(addback=="DNMT3A1"|addback=="DNMT3A2")   %>% filter(!E_class%in%"snRNA") %>% ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density()  + facet_wrap(~E_class)+theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "DNMT3A", x="log2 ratio of methylation in CpHs followed by purine/pyrimidine") +scale_colour_manual(values = c("#4e79a7","#a83232" ,"#ffa64d"))
+
+ggsave(paste0("../figures/Figures_for_report/distributions_of_genomic_elements/CH/categories_ofRE_dnmt3a.png"))
+
+suppressWarnings(print(test_RE_ch  %>% filter(addback=="DNMT3B1")  %>% filter(!E_class%in%"snRNA") %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density()  + facet_wrap(~E_class)+theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "DNMT3B", x="log2 ratio of methylation in CpHs followed by purine/pyrimidine") +scale_colour_manual(values = c("#4e79a7","#a83232" ,"#ffa64d"))))
+
+ggsave(paste0("../figures/Figures_for_report/distributions_of_genomic_elements/CH/categories_ofRE_dnmt3b.png"))
+
+test_RE_ch  %>% filter(addback=="WT")  %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density()  + facet_wrap(~E_class)+theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "WT", x="log2 ratio of methylation in CpHs followed by purine/pyrimidine") +scale_colour_manual(values = c("#4e79a7","#a83232" ,"#ffa64d"))
+
+
+```
+
+```{r}
+
+test_RE_ch  %>% filter(addback=="DNMT3A1"|addback=="DNMT3A2")  %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density()  + facet_wrap(~E_class)+theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "DNMT3A", x="log2 ratio of methylation in CpHs followed by purine/pyrimidine") +scale_colour_manual(values = c("#4e79a7","#a83232" ,"#ffa64d"))
+
+suppressWarnings(print(test_RE_ch  %>% filter(addback=="DNMT3B1")  %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density()  + facet_wrap(~E_class)+theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "DNMT3B", x="log2 ratio of methylation in CpHs followed by purine/pyrimidine") +scale_colour_manual(values = c("#4e79a7","#a83232" ,"#ffa64d"))))
+
+test_RE_ch  %>% filter(addback=="WT")  %>%  ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density()  + facet_wrap(~E_class)+theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "WT", x="log2 ratio of methylation in CpHs followed by purine/pyrimidine") +scale_colour_manual(values = c("#4e79a7","#a83232" ,"#ffa64d"))
+```
+
+
+
+
+```{r}
+#test_promoters_cg
+
+test_promoters_cg %>%  filter(addback=="DNMT3A1"|addback=="DNMT3A2") %>% filter (WT_expressed=="YES")%>% ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "DNMT3A", x="log2 ratio of methylation in CpGs followed by purine/pyrimidine")
+
+test_promoters_cg %>%  filter(addback=="DNMT3A1"|addback=="DNMT3A2") %>% filter (WT_expressed=="NO")%>% ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "DNMT3A", x="log2 ratio of methylation in CpGs followed by purine/pyrimidine")
+
+
+test_promoters_cg %>%   filter(addback=="DNMT3B1") %>% filter (WT_expressed=="YES")%>% ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "DNMT3B", x="log2 ratio of methylation in CpGs followed by purine/pyrimidine")
+
+test_promoters_cg  %>% filter(addback=="DNMT3B1") %>% filter (WT_expressed=="NO")%>% ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "DNMT3B", x="log2 ratio of methylation in CpGs followed by purine/pyrimidine")
+
+test_promoters_cg  %>% filter(addback=="WT") %>% filter (WT_expressed=="YES")%>% ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "WT", x="log2 ratio of methylation in CpGs followed by purine/pyrimidine")
+
+test_promoters_cg  %>% filter(addback=="WT") %>% filter (WT_expressed=="NO")%>% ggplot(aes(x=ratio_purpyr_log, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "WT", x="log2 ratio of methylation in CpGs followed by purine/pyrimidine")
+```
+
+```{r}
+test_promoters_cg %>% filter(Purine_num>3 & Pyrimidine_num>3) %>% filter(addback=="DNMT3A1"|addback=="DNMT3A2") %>% filter (WT_expressed=="YES")%>% ggplot(aes(x=ratio_purpyr_log_num, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "DNMT3A", x="log2 ratio of methylation in CpGs followed by purine/pyrimidine")
+
+test_promoters_cg %>% filter(Purine_num>3 & Pyrimidine_num>3) %>% filter(addback=="DNMT3A1"|addback=="DNMT3A2") %>% filter (WT_expressed=="NO")%>% ggplot(aes(x=ratio_purpyr_log_num, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "DNMT3A", x="log2 ratio of methylation in CpGs followed by purine/pyrimidine")
+
+
+test_promoters_cg %>% filter(Purine_num>3 & Pyrimidine_num>3) %>% filter(addback=="DNMT3B1") %>% filter (WT_expressed=="YES")%>% ggplot(aes(x=ratio_purpyr_log_num, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "DNMT3B", x="log2 ratio of methylation in CpGs followed by purine/pyrimidine")
+
+test_promoters_cg %>% filter(Purine_num>3 & Pyrimidine_num>3) %>% filter(addback=="DNMT3B1") %>% filter (WT_expressed=="NO")%>% ggplot(aes(x=ratio_purpyr_log_num, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "DNMT3B", x="log2 ratio of methylation in CpGs followed by purine/pyrimidine")
+
+test_promoters_cg %>% filter(Purine_num>3 & Pyrimidine_num>3) %>% filter(addback=="WT") %>% filter (WT_expressed=="YES")%>% ggplot(aes(x=ratio_purpyr_log_num, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "WT", x="log2 ratio of methylation in CpGs followed by purine/pyrimidine")
+
+test_promoters_cg %>% filter(Purine_num>3 & Pyrimidine_num>3) %>% filter(addback=="WT") %>% filter (WT_expressed=="NO")%>% ggplot(aes(x=ratio_purpyr_log_num, color=sample_name))+ geom_density() +theme_classic() + geom_vline(aes(xintercept=0),
+            color="blue", linetype="dashed", linewidth = 0.1) +labs(title = "WT", x="log2 ratio of methylation in CpGs followed by purine/pyrimidine")
+```
+
+```{r}
+test_promoters_cg
+```
+

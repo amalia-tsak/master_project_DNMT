@@ -1,0 +1,1476 @@
+---
+title: "Figures_Annotate_top_bins with_chromHMM"
+author: "Amalia"
+date: "2023-10-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+We will use chromhmm data (downloaded from a github repo and liftovered from mm10 to mm9) to annotate our bins
+
+Load packages
+```{r}
+library(GenomicRanges)
+library(tidyverse)
+#library (purrr)
+library(plyranges)
+#library(rlist)
+#library(ggvenn)
+#library(UpSetR)
+library(viridis)
+library(rtracklayer)
+```
+
+Load the dataset
+#we see that we only have 11 states after liftover
+```{r}
+states<-import("../data/chromhmm_states_liftover.bed", format="bed")
+unique(states$name)
+
+#states2<-import("../../../Downloads/mESC_E14_12_segments.bed", format="bed")
+#unique(states2$name)
+```
+#create one granges object for each state
+this will be used for annotation like we used in the genomic annotation
+we will use disjoin, in case there are overlapping regions
+```{r}
+E1<-states %>% filter(name=="E1")
+E1<-disjoin_ranges(E1)
+E2<-states %>% filter(name=="E2")
+E2<-disjoin_ranges(E2)
+E3<-states %>% filter(name=="E3")
+E3<-disjoin_ranges(E3)
+E4<-states %>% filter(name=="E4")
+E4<-disjoin_ranges(E4)
+E5<-states %>% filter(name=="E5")
+E5<-disjoin_ranges(E5)
+E6<-states %>% filter(name=="E6")
+E6<-disjoin_ranges(E6)
+E7<-states %>% filter(name=="E7")
+E7<-disjoin_ranges(E7)
+E8<-states %>% filter(name=="E8")
+E8<-disjoin_ranges(E8)
+E9<-states %>% filter(name=="E9")
+E9<-disjoin_ranges(E9)
+E10<-states %>% filter(name=="E10")
+E10<-disjoin_ranges(E10)
+E11<-states %>% filter(name=="E11")
+E11<-disjoin_ranges(E11)
+```
+
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786_as3A","GSM748787_as3A") #modified
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1","WT","WT", )
+```
+
+```{r}
+top1_tobind<-data.frame() #used to rbind all dfs together
+for(i in 1:8){
+a<-readRDS(file = paste("../data/processed/bins/CpGs/1kb/top1%/", sample_names[i],".rds",sep=""))
+a<-a %>% makeGRangesFromDataFrame(keep.extra.columns = T)  #convert to granges
+##E1 1 
+
+#1 overlaps
+hits<-findOverlaps(a,E1, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E1[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E1_bina<-data.frame("row.number"=queryHits(hits),"E1_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E1_bina<-length_E1_bina %>% group_by(row.number) %>% summarise(across(E1_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E1_bina<-length_E1_bina %>% mutate(E1_overlap=replace(E1_overlap, E1_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E1_bina<-left_join(to_merge,length_E1_bina, by="row.number")
+#sanity check
+check_full_length_E1_bina<-full_join(to_merge,length_E1_bina, by="row.number")
+
+##E2
+#1 overlaps
+hits<-findOverlaps(a,E2, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E2[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E2_bina<-data.frame("row.number"=queryHits(hits),"E2_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E2_bina<-length_E2_bina %>% group_by(row.number) %>% summarise(across(E2_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E2_bina<-length_E2_bina %>% mutate(E2_overlap=replace(E2_overlap, E2_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E2_bina<-left_join(to_merge,length_E2_bina, by="row.number")
+
+# E3
+#1 overlaps
+hits<-findOverlaps(a,E3, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E3[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E3_bina<-data.frame("row.number"=queryHits(hits),"E3_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E3_bina<-length_E3_bina %>% group_by(row.number) %>% summarise(across(E3_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E3_bina<-length_E3_bina %>% mutate(E3_overlap=replace(E3_overlap, E3_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E3_bina<-left_join(to_merge,length_E3_bina, by="row.number")
+
+#E4
+#1 overlaps
+hits<-findOverlaps(a,E4, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E4[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E4_bina<-data.frame("row.number"=queryHits(hits),"E4_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E4_bina<-length_E4_bina %>% group_by(row.number) %>% summarise(across(E4_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E4_bina<-length_E4_bina %>% mutate(E4_overlap=replace(E4_overlap, E4_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E4_bina<-left_join(to_merge,length_E4_bina, by="row.number")
+
+#E5
+#1 overlaps
+hits<-findOverlaps(a,E5, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E5[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E5_bina<-data.frame("row.number"=queryHits(hits),"E5_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E5_bina<-length_E5_bina %>% group_by(row.number) %>% summarise(across(E5_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E5_bina<-length_E5_bina %>% mutate(E5_overlap=replace(E5_overlap, E5_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E5_bina<-left_join(to_merge,length_E5_bina, by="row.number")
+
+#E6
+#1 overlaps
+hits<-findOverlaps(a,E6, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E6[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E6_bina<-data.frame("row.number"=queryHits(hits),"E6_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E6_bina<-length_E6_bina %>% group_by(row.number) %>% summarise(across(E6_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E6_bina<-length_E6_bina %>% mutate(E6_overlap=replace(E6_overlap, E6_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E6_bina<-left_join(to_merge,length_E6_bina, by="row.number")
+
+#E7
+#1 overlaps
+hits<-findOverlaps(a,E7, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E7[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E7_bina<-data.frame("row.number"=queryHits(hits),"E7_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E7_bina<-length_E7_bina %>% group_by(row.number) %>% summarise(across(E7_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E7_bina<-length_E7_bina %>% mutate(E7_overlap=replace(E7_overlap, E7_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E7_bina<-left_join(to_merge,length_E7_bina, by="row.number")
+
+#E8
+#1 overlaps
+hits<-findOverlaps(a,E8, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E8[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E8_bina<-data.frame("row.number"=queryHits(hits),"E8_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E8_bina<-length_E8_bina %>% group_by(row.number) %>% summarise(across(E8_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E8_bina<-length_E8_bina %>% mutate(E8_overlap=replace(E8_overlap, E8_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E8_bina<-left_join(to_merge,length_E8_bina, by="row.number")
+
+#E9
+#1 overlaps
+hits<-findOverlaps(a,E9, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E9[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E9_bina<-data.frame("row.number"=queryHits(hits),"E9_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E9_bina<-length_E9_bina %>% group_by(row.number) %>% summarise(across(E9_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E9_bina<-length_E9_bina %>% mutate(E9_overlap=replace(E9_overlap, E9_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E9_bina<-left_join(to_merge,length_E9_bina, by="row.number")
+
+#E10
+#1 overlaps
+hits<-findOverlaps(a,E10, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E10[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E10_bina<-data.frame("row.number"=queryHits(hits),"E10_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E10_bina<-length_E10_bina %>% group_by(row.number) %>% summarise(across(E10_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E10_bina<-length_E10_bina %>% mutate(E10_overlap=replace(E10_overlap, E10_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E10_bina<-left_join(to_merge,length_E10_bina, by="row.number")
+
+#E11
+#1 overlaps
+hits<-findOverlaps(a,E11, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E11[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E11_bina<-data.frame("row.number"=queryHits(hits),"E11_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E11_bina<-length_E11_bina %>% group_by(row.number) %>% summarise(across(E11_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E11_bina<-length_E11_bina %>% mutate(E11_overlap=replace(E11_overlap, E11_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E11_bina<-left_join(to_merge,length_E11_bina, by="row.number")
+
+#merge all
+bina_overlaps<-left_join(full_length_E1_bina,full_length_E2_bina) %>% left_join(full_length_E3_bina) %>% left_join(full_length_E4_bina) %>% left_join(full_length_E5_bina) %>% left_join(full_length_E6_bina) %>% left_join(full_length_E7_bina) %>% left_join(full_length_E8_bina) %>% left_join(full_length_E9_bina) %>% left_join(full_length_E10_bina) %>% left_join(full_length_E11_bina) %>% rowwise() %>% mutate(sum_overlap= sum(c(E1_overlap,E2_overlap,E3_overlap,E4_overlap,E5_overlap,E6_overlap,E7_overlap,E8_overlap,E9_overlap,E10_overlap,E11_overlap), na.rm=TRUE )) %>% mutate(Rest_overlap= 1000-sum_overlap) %>%dplyr::select(-c(sum_overlap, row.number)) %>% replace(is.na(.), 0)
+
+
+#bina_overlaps
+
+
+#pivot to longer for plot
+bina_long<-bina_overlaps %>% pivot_longer(!bin, names_to = "region", values_to = "range") %>% mutate("sample_name" = print(sample_names[i]))
+
+top1_tobind<-rbind(top1_tobind,bina_long)
+#how to merge the two
+#plot for two
+#bina_long %>% ggplot(aes(y=region, fill=range)) +geom_bar(position= "fill")
+}
+#full_length_E2_bina
+#bina_overlaps %>% filter(Rest_overlap>0)
+```
+
+plot
+```{r}
+library(rcartocolor)
+mycolours<-carto_pal(12,"Safe")
+tobind %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#convert sample name to factor to keep specific order
+#test
+top1_tobind2<-top1_tobind
+top1_tobind2$sample_name<- factor(top1_tobind2$sample_name, levels=c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786_as3A","GSM748786_as3B"))
+
+
+  
+top1_tobind2$region<- factor(top1_tobind2$region, levels=c("E1_overlap","E2_overlap","E3_overlap","E4_overlap","E5_overlap","E6_overlap","E7_overlap","E8_overlap","E9_overlap","E10_overlap","E11_overlap", "Rest_overlap"))  
+
+plot<-top1_tobind2 %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Chromatin state Annotation of Top 1% ranked 1kb tiles") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d()
+
+top1_tobind2 %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Chromatin state Annotation of Top 1% ranked 1kb tiles") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_manual(values=mycolours)
+#+
+#  stat_summary(fun = "mean", geom = "text", aes(label = round(..y.., 0)),
+#               position = position_stack(vjust = 0.5))
+
+
+ggsave("../figures/ChromHMM_Annotation_of_bins/1kb_windows/unstranded_bins/Top1_percent.png", plot = plot)
+  plot
+#2
+top1_tobind2 %>% filter(region %in% c("E1","E9","E11","REST"))
+top1_tobind2 %>% filter(!region%in%c("E1_overlap","E9_overlap","E11_overlap","Rest_overlap", "E6_overlap","E7_overlap","E8_overlap"))%>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Chromatin state Annotation of Top 1% ranked 1kb tiles") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_manual(values=mycolours)+stat_summary(fun = "mean", geom = "text", aes(label = round(..y.., 0)),position = position_stack(vjust = 0.5))
+
+
+
+
+
+
+
+plot<-top1_tobind2 %>% filter(!region%in%c("E1_overlap","E9_overlap","E11_overlap","Rest_overlap", "E6_overlap","E7_overlap","E8_overlap"))%>% filter(!sample_name %in% c("GSM748786_as3A","GSM748786_as3B")) %>%  ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Chromatin state Annotation of Top 1% ranked 1kb-sized genomic intervals") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d() +theme(axis.text.x=element_text(size=10), axis.text.y=element_text(size=10))+
+  stat_summary(fun = "mean", geom = "text", aes(label = round(..y.., 0),colour="red"),
+               position = position_stack(vjust = 0.5))
+ggsave("../figures/Figures_for_report/chromHMM_annotation_of_bins/CpG/with_numbers/Top1_percent.png", plot = plot)
+
+
+plot<-top1_tobind2 %>% filter(!region%in%c("E1_overlap","E9_overlap","E11_overlap","Rest_overlap", "E6_overlap","E7_overlap","E8_overlap"))%>% filter(!sample_name %in% c("GSM748786_as3A","GSM748786_as3B")) %>%  ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Chromatin state Annotation of Top 1% ranked 1kb-sized genomic intervals") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d() +theme(axis.text.x=element_text(size=10), axis.text.y=element_text(size=10))
+ggsave("../figures/Figures_for_report/chromHMM_annotation_of_bins/CpG/Top1_percent.png", plot = plot)
+```
+
+
+```{r}
+top10_tobind<-data.frame() #used to rbind all dfs together
+for(i in 1:8){
+a<-readRDS(file = paste("../data/processed/bins/CpGs/1kb/top10%/", sample_names[i],".rds",sep=""))
+a<-a %>% makeGRangesFromDataFrame(keep.extra.columns = T)  #convert to granges
+##E1 1 
+
+#1 overlaps
+hits<-findOverlaps(a,E1, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E1[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E1_bina<-data.frame("row.number"=queryHits(hits),"E1_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E1_bina<-length_E1_bina %>% group_by(row.number) %>% summarise(across(E1_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E1_bina<-length_E1_bina %>% mutate(E1_overlap=replace(E1_overlap, E1_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E1_bina<-left_join(to_merge,length_E1_bina, by="row.number")
+#sanity check
+check_full_length_E1_bina<-full_join(to_merge,length_E1_bina, by="row.number")
+
+##E2
+#1 overlaps
+hits<-findOverlaps(a,E2, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E2[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E2_bina<-data.frame("row.number"=queryHits(hits),"E2_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E2_bina<-length_E2_bina %>% group_by(row.number) %>% summarise(across(E2_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E2_bina<-length_E2_bina %>% mutate(E2_overlap=replace(E2_overlap, E2_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E2_bina<-left_join(to_merge,length_E2_bina, by="row.number")
+
+# E3
+#1 overlaps
+hits<-findOverlaps(a,E3, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E3[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E3_bina<-data.frame("row.number"=queryHits(hits),"E3_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E3_bina<-length_E3_bina %>% group_by(row.number) %>% summarise(across(E3_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E3_bina<-length_E3_bina %>% mutate(E3_overlap=replace(E3_overlap, E3_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E3_bina<-left_join(to_merge,length_E3_bina, by="row.number")
+
+#E4
+#1 overlaps
+hits<-findOverlaps(a,E4, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E4[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E4_bina<-data.frame("row.number"=queryHits(hits),"E4_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E4_bina<-length_E4_bina %>% group_by(row.number) %>% summarise(across(E4_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E4_bina<-length_E4_bina %>% mutate(E4_overlap=replace(E4_overlap, E4_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E4_bina<-left_join(to_merge,length_E4_bina, by="row.number")
+
+#E5
+#1 overlaps
+hits<-findOverlaps(a,E5, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E5[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E5_bina<-data.frame("row.number"=queryHits(hits),"E5_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E5_bina<-length_E5_bina %>% group_by(row.number) %>% summarise(across(E5_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E5_bina<-length_E5_bina %>% mutate(E5_overlap=replace(E5_overlap, E5_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E5_bina<-left_join(to_merge,length_E5_bina, by="row.number")
+
+#E6
+#1 overlaps
+hits<-findOverlaps(a,E6, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E6[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E6_bina<-data.frame("row.number"=queryHits(hits),"E6_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E6_bina<-length_E6_bina %>% group_by(row.number) %>% summarise(across(E6_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E6_bina<-length_E6_bina %>% mutate(E6_overlap=replace(E6_overlap, E6_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E6_bina<-left_join(to_merge,length_E6_bina, by="row.number")
+
+#E7
+#1 overlaps
+hits<-findOverlaps(a,E7, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E7[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E7_bina<-data.frame("row.number"=queryHits(hits),"E7_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E7_bina<-length_E7_bina %>% group_by(row.number) %>% summarise(across(E7_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E7_bina<-length_E7_bina %>% mutate(E7_overlap=replace(E7_overlap, E7_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E7_bina<-left_join(to_merge,length_E7_bina, by="row.number")
+
+#E8
+#1 overlaps
+hits<-findOverlaps(a,E8, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E8[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E8_bina<-data.frame("row.number"=queryHits(hits),"E8_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E8_bina<-length_E8_bina %>% group_by(row.number) %>% summarise(across(E8_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E8_bina<-length_E8_bina %>% mutate(E8_overlap=replace(E8_overlap, E8_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E8_bina<-left_join(to_merge,length_E8_bina, by="row.number")
+
+#E9
+#1 overlaps
+hits<-findOverlaps(a,E9, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E9[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E9_bina<-data.frame("row.number"=queryHits(hits),"E9_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E9_bina<-length_E9_bina %>% group_by(row.number) %>% summarise(across(E9_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E9_bina<-length_E9_bina %>% mutate(E9_overlap=replace(E9_overlap, E9_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E9_bina<-left_join(to_merge,length_E9_bina, by="row.number")
+
+#E10
+#1 overlaps
+hits<-findOverlaps(a,E10, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E10[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E10_bina<-data.frame("row.number"=queryHits(hits),"E10_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E10_bina<-length_E10_bina %>% group_by(row.number) %>% summarise(across(E10_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E10_bina<-length_E10_bina %>% mutate(E10_overlap=replace(E10_overlap, E10_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E10_bina<-left_join(to_merge,length_E10_bina, by="row.number")
+
+#E11
+#1 overlaps
+hits<-findOverlaps(a,E11, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E11[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E11_bina<-data.frame("row.number"=queryHits(hits),"E11_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E11_bina<-length_E11_bina %>% group_by(row.number) %>% summarise(across(E11_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E11_bina<-length_E11_bina %>% mutate(E11_overlap=replace(E11_overlap, E11_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E11_bina<-left_join(to_merge,length_E11_bina, by="row.number")
+
+#merge all
+bina_overlaps<-left_join(full_length_E1_bina,full_length_E2_bina) %>% left_join(full_length_E3_bina) %>% left_join(full_length_E4_bina) %>% left_join(full_length_E5_bina) %>% left_join(full_length_E6_bina) %>% left_join(full_length_E7_bina) %>% left_join(full_length_E8_bina) %>% left_join(full_length_E9_bina) %>% left_join(full_length_E10_bina) %>% left_join(full_length_E11_bina) %>% rowwise() %>% mutate(sum_overlap= sum(c(E1_overlap,E2_overlap,E3_overlap,E4_overlap,E5_overlap,E6_overlap,E7_overlap,E8_overlap,E9_overlap,E10_overlap,E11_overlap), na.rm=TRUE )) %>% mutate(Rest_overlap= 1000-sum_overlap) %>%dplyr::select(-c(sum_overlap, row.number)) %>% replace(is.na(.), 0)
+
+
+#bina_overlaps
+
+
+#pivot to longer for plot
+bina_long<-bina_overlaps %>% pivot_longer(!bin, names_to = "region", values_to = "range") %>% mutate("sample_name" = print(sample_names[i]))
+
+top10_tobind<-rbind(top10_tobind,bina_long)
+#how to merge the two
+#plot for two
+#bina_long %>% ggplot(aes(y=region, fill=range)) +geom_bar(position= "fill")
+}
+#full_length_E2_bina
+#bina_overlaps %>% filter(Rest_overlap>0)
+```
+
+```{r}
+top10_tobind %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#convert sample name to factor to keep specific order
+#test
+top10_tobind2<-top10_tobind
+top10_tobind2$sample_name<- factor(top10_tobind2$sample_name, levels=c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786_as3A","GSM748786_as3B","GSM748787_as3A","GSM748787_as3B"))
+
+top10_tobind2$region<- factor(top10_tobind2$region, levels=c("E1_overlap","E2_overlap","E3_overlap","E4_overlap","E5_overlap","E6_overlap","E7_overlap","E8_overlap","E9_overlap","E10_overlap","E11_overlap", "Rest_overlap")) 
+
+plot<-top10_tobind2 %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Chromatin state Annotation of Top 10% ranked 1kb tiles") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_manual(values=mycolours) +stat_summary(fun = "mean", geom = "text", aes(label = round(..y.., 0)),position = position_stack(vjust = 0.5))
+
+
+ggsave("../figures/ChromHMM_Annotation_of_bins/1kb_windows/unstranded_bins/Top10_percent.png", plot = plot)
+  plot
+  
+
+top10_tobind2 %>% filter(!region%in%c("E1_overlap","E9_overlap","E11_overlap","Rest_overlap", "E6_overlap","E7_overlap","E8_overlap"))%>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Chromatin state Annotation of Top 10% ranked 1kb tiles") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_manual(values=mycolours) +stat_summary(fun = "mean", geom = "text", aes(label = round(..y.., 0)),position = position_stack(vjust = 0.5))  
+
+
+
+plot<-top10_tobind2 %>% filter(!region%in%c("E1_overlap","E9_overlap","E11_overlap","Rest_overlap", "E6_overlap","E7_overlap","E8_overlap"))%>% filter(!sample_name %in% c("GSM748786_as3A","GSM748786_as3B")) %>%  ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Chromatin state Annotation of Top 10% ranked 1kb-sized genomic intervals") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d() +theme(axis.text.x=element_text(size=10), axis.text.y=element_text(size=10))+
+  stat_summary(fun = "mean", geom = "text", aes(label = round(..y.., 0),colour="red"),
+               position = position_stack(vjust = 0.5))
+ggsave("../figures/Figures_for_report/chromHMM_annotation_of_bins/CpG/with_numbers/Top10_percent.png", plot = plot)
+
+
+plot<-top10_tobind2 %>% filter(!region%in%c("E1_overlap","E9_overlap","E11_overlap","Rest_overlap", "E6_overlap","E7_overlap","E8_overlap"))%>% filter(!sample_name %in% c("GSM748786_as3A","GSM748786_as3B")) %>%  ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Chromatin state Annotation of Top 10% ranked 1kb-sized genomic intervals") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d() +theme(axis.text.x=element_text(size=10), axis.text.y=element_text(size=10))
+ggsave("../figures/Figures_for_report/chromHMM_annotation_of_bins/CpG/Top10_percent.png", plot = plot)
+```
+
+```{r}
+bottom1_tobind<-data.frame() #used to rbind all dfs together
+for(i in 1:8){
+a<-readRDS(file = paste("../data/processed/bins/CpGs/1kb/bottom1%/", sample_names[i],".rds",sep=""))
+a<-a %>% makeGRangesFromDataFrame(keep.extra.columns = T)  #convert to granges
+##E1 1 
+
+#1 overlaps
+hits<-findOverlaps(a,E1, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E1[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E1_bina<-data.frame("row.number"=queryHits(hits),"E1_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E1_bina<-length_E1_bina %>% group_by(row.number) %>% summarise(across(E1_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E1_bina<-length_E1_bina %>% mutate(E1_overlap=replace(E1_overlap, E1_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E1_bina<-left_join(to_merge,length_E1_bina, by="row.number")
+#sanity check
+check_full_length_E1_bina<-full_join(to_merge,length_E1_bina, by="row.number")
+
+##E2
+#1 overlaps
+hits<-findOverlaps(a,E2, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E2[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E2_bina<-data.frame("row.number"=queryHits(hits),"E2_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E2_bina<-length_E2_bina %>% group_by(row.number) %>% summarise(across(E2_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E2_bina<-length_E2_bina %>% mutate(E2_overlap=replace(E2_overlap, E2_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E2_bina<-left_join(to_merge,length_E2_bina, by="row.number")
+
+# E3
+#1 overlaps
+hits<-findOverlaps(a,E3, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E3[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E3_bina<-data.frame("row.number"=queryHits(hits),"E3_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E3_bina<-length_E3_bina %>% group_by(row.number) %>% summarise(across(E3_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E3_bina<-length_E3_bina %>% mutate(E3_overlap=replace(E3_overlap, E3_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E3_bina<-left_join(to_merge,length_E3_bina, by="row.number")
+
+#E4
+#1 overlaps
+hits<-findOverlaps(a,E4, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E4[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E4_bina<-data.frame("row.number"=queryHits(hits),"E4_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E4_bina<-length_E4_bina %>% group_by(row.number) %>% summarise(across(E4_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E4_bina<-length_E4_bina %>% mutate(E4_overlap=replace(E4_overlap, E4_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E4_bina<-left_join(to_merge,length_E4_bina, by="row.number")
+
+#E5
+#1 overlaps
+hits<-findOverlaps(a,E5, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E5[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E5_bina<-data.frame("row.number"=queryHits(hits),"E5_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E5_bina<-length_E5_bina %>% group_by(row.number) %>% summarise(across(E5_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E5_bina<-length_E5_bina %>% mutate(E5_overlap=replace(E5_overlap, E5_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E5_bina<-left_join(to_merge,length_E5_bina, by="row.number")
+
+#E6
+#1 overlaps
+hits<-findOverlaps(a,E6, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E6[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E6_bina<-data.frame("row.number"=queryHits(hits),"E6_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E6_bina<-length_E6_bina %>% group_by(row.number) %>% summarise(across(E6_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E6_bina<-length_E6_bina %>% mutate(E6_overlap=replace(E6_overlap, E6_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E6_bina<-left_join(to_merge,length_E6_bina, by="row.number")
+
+#E7
+#1 overlaps
+hits<-findOverlaps(a,E7, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E7[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E7_bina<-data.frame("row.number"=queryHits(hits),"E7_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E7_bina<-length_E7_bina %>% group_by(row.number) %>% summarise(across(E7_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E7_bina<-length_E7_bina %>% mutate(E7_overlap=replace(E7_overlap, E7_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E7_bina<-left_join(to_merge,length_E7_bina, by="row.number")
+
+#E8
+#1 overlaps
+hits<-findOverlaps(a,E8, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E8[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E8_bina<-data.frame("row.number"=queryHits(hits),"E8_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E8_bina<-length_E8_bina %>% group_by(row.number) %>% summarise(across(E8_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E8_bina<-length_E8_bina %>% mutate(E8_overlap=replace(E8_overlap, E8_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E8_bina<-left_join(to_merge,length_E8_bina, by="row.number")
+
+#E9
+#1 overlaps
+hits<-findOverlaps(a,E9, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E9[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E9_bina<-data.frame("row.number"=queryHits(hits),"E9_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E9_bina<-length_E9_bina %>% group_by(row.number) %>% summarise(across(E9_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E9_bina<-length_E9_bina %>% mutate(E9_overlap=replace(E9_overlap, E9_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E9_bina<-left_join(to_merge,length_E9_bina, by="row.number")
+
+#E10
+#1 overlaps
+hits<-findOverlaps(a,E10, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E10[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E10_bina<-data.frame("row.number"=queryHits(hits),"E10_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E10_bina<-length_E10_bina %>% group_by(row.number) %>% summarise(across(E10_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E10_bina<-length_E10_bina %>% mutate(E10_overlap=replace(E10_overlap, E10_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E10_bina<-left_join(to_merge,length_E10_bina, by="row.number")
+
+#E11
+#1 overlaps
+hits<-findOverlaps(a,E11, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E11[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E11_bina<-data.frame("row.number"=queryHits(hits),"E11_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E11_bina<-length_E11_bina %>% group_by(row.number) %>% summarise(across(E11_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E11_bina<-length_E11_bina %>% mutate(E11_overlap=replace(E11_overlap, E11_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E11_bina<-left_join(to_merge,length_E11_bina, by="row.number")
+
+#merge all
+bina_overlaps<-left_join(full_length_E1_bina,full_length_E2_bina) %>% left_join(full_length_E3_bina) %>% left_join(full_length_E4_bina) %>% left_join(full_length_E5_bina) %>% left_join(full_length_E6_bina) %>% left_join(full_length_E7_bina) %>% left_join(full_length_E8_bina) %>% left_join(full_length_E9_bina) %>% left_join(full_length_E10_bina) %>% left_join(full_length_E11_bina) %>% rowwise() %>% mutate(sum_overlap= sum(c(E1_overlap,E2_overlap,E3_overlap,E4_overlap,E5_overlap,E6_overlap,E7_overlap,E8_overlap,E9_overlap,E10_overlap,E11_overlap), na.rm=TRUE )) %>% mutate(Rest_overlap= 1000-sum_overlap) %>%dplyr::select(-c(sum_overlap, row.number)) %>% replace(is.na(.), 0)
+
+
+#bina_overlaps
+
+
+#pivot to longer for plot
+bina_long<-bina_overlaps %>% pivot_longer(!bin, names_to = "region", values_to = "range") %>% mutate("sample_name" = print(sample_names[i]))
+
+bottom1_tobind<-rbind(bottom1_tobind,bina_long)
+#how to merge the two
+#plot for two
+#bina_long %>% ggplot(aes(y=region, fill=range)) +geom_bar(position= "fill")
+}
+#full_length_E2_bina
+#bina_overlaps %>% filter(Rest_overlap>0)
+```
+
+plot
+```{r}
+library(rcartocolor)
+mycolours<-carto_pal(12,"Safe")
+tobind %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#convert sample name to factor to keep specific order
+#test
+bottom1_tobind2<-bottom1_tobind
+bottom1_tobind2$sample_name<- factor(bottom1_tobind2$sample_name, levels=c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786_as3A","GSM748786_as3B"))
+
+
+  
+bottom1_tobind2$region<- factor(bottom1_tobind2$region, levels=c("E1_overlap","E2_overlap","E3_overlap","E4_overlap","E5_overlap","E6_overlap","E7_overlap","E8_overlap","E9_overlap","E10_overlap","E11_overlap", "Rest_overlap"))  
+
+#plot<-bottom1_tobind2 %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Chromatin state Annotation of Top 1% ranked 1kb tiles") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d()
+
+bottom1_tobind2 %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Chromatin state Annotation of Bottom 1% ranked 1kb tiles") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_manual(values=mycolours)+
+stat_summary(fun = "mean", geom = "text", aes(label = round(..y.., 0)),position = position_stack(vjust = 0.5))
+
+
+#ggsave("../figures/ChromHMM_Annotation_of_bins/1kb_windows/unstranded_bins/Bottom1_percent.png", plot = plot)
+  plot
+
+  
+bottom1_tobind2 %>% filter(!region%in%c("E1_overlap","E9_overlap","E11_overlap","Rest_overlap", "E6_overlap","E7_overlap","E8_overlap"))%>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Chromatin state Annotation of Bottom 1% ranked 1kb tiles") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_manual(values=mycolours)+
+stat_summary(fun = "mean", geom = "text", aes(label = round(..y.., 0)),position = position_stack(vjust = 0.5))  
+
+
+plot<-bottom1_tobind2 %>% filter(!region%in%c("E1_overlap","E9_overlap","E11_overlap","Rest_overlap", "E6_overlap","E7_overlap","E8_overlap"))%>% filter(!sample_name %in% c("GSM748786_as3A","GSM748786_as3B")) %>%  ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Chromatin state Annotation of Bottom 1% ranked 1kb-sized genomic intervals") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d() +theme(axis.text.x=element_text(size=10), axis.text.y=element_text(size=10))+
+  stat_summary(fun = "mean", geom = "text", aes(label = round(..y.., 0),colour="red"),
+               position = position_stack(vjust = 0.5))
+ggsave("../figures/Figures_for_report/chromHMM_annotation_of_bins/CpG/with_numbers/Bottom1_percent.png", plot = plot)
+
+
+plot<-bottom1_tobind2 %>% filter(!region%in%c("E1_overlap","E9_overlap","E11_overlap","Rest_overlap", "E6_overlap","E7_overlap","E8_overlap"))%>% filter(!sample_name %in% c("GSM748786_as3A","GSM748786_as3B")) %>%  ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Chromatin state Annotation of Bottom 1% ranked 1kb-sized genomic intervals") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d() +theme(axis.text.x=element_text(size=10), axis.text.y=element_text(size=10))
+ggsave("../figures/Figures_for_report/chromHMM_annotation_of_bins/CpG/Bottom1_percent.png", plot = plot)
+
+```
+
+
+```{r}
+bottom10_tobind<-data.frame() #used to rbind all dfs together
+for(i in 1:8){
+a<-readRDS(file = paste("../data/processed/bins/CpGs/1kb/bottom10%/", sample_names[i],".rds",sep=""))
+a<-a %>% makeGRangesFromDataFrame(keep.extra.columns = T)  #convert to granges
+##E1 1 
+
+#1 overlaps
+hits<-findOverlaps(a,E1, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E1[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E1_bina<-data.frame("row.number"=queryHits(hits),"E1_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E1_bina<-length_E1_bina %>% group_by(row.number) %>% summarise(across(E1_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E1_bina<-length_E1_bina %>% mutate(E1_overlap=replace(E1_overlap, E1_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E1_bina<-left_join(to_merge,length_E1_bina, by="row.number")
+#sanity check
+check_full_length_E1_bina<-full_join(to_merge,length_E1_bina, by="row.number")
+
+##E2
+#1 overlaps
+hits<-findOverlaps(a,E2, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E2[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E2_bina<-data.frame("row.number"=queryHits(hits),"E2_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E2_bina<-length_E2_bina %>% group_by(row.number) %>% summarise(across(E2_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E2_bina<-length_E2_bina %>% mutate(E2_overlap=replace(E2_overlap, E2_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E2_bina<-left_join(to_merge,length_E2_bina, by="row.number")
+
+# E3
+#1 overlaps
+hits<-findOverlaps(a,E3, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E3[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E3_bina<-data.frame("row.number"=queryHits(hits),"E3_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E3_bina<-length_E3_bina %>% group_by(row.number) %>% summarise(across(E3_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E3_bina<-length_E3_bina %>% mutate(E3_overlap=replace(E3_overlap, E3_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E3_bina<-left_join(to_merge,length_E3_bina, by="row.number")
+
+#E4
+#1 overlaps
+hits<-findOverlaps(a,E4, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E4[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E4_bina<-data.frame("row.number"=queryHits(hits),"E4_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E4_bina<-length_E4_bina %>% group_by(row.number) %>% summarise(across(E4_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E4_bina<-length_E4_bina %>% mutate(E4_overlap=replace(E4_overlap, E4_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E4_bina<-left_join(to_merge,length_E4_bina, by="row.number")
+
+#E5
+#1 overlaps
+hits<-findOverlaps(a,E5, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E5[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E5_bina<-data.frame("row.number"=queryHits(hits),"E5_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E5_bina<-length_E5_bina %>% group_by(row.number) %>% summarise(across(E5_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E5_bina<-length_E5_bina %>% mutate(E5_overlap=replace(E5_overlap, E5_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E5_bina<-left_join(to_merge,length_E5_bina, by="row.number")
+
+#E6
+#1 overlaps
+hits<-findOverlaps(a,E6, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E6[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E6_bina<-data.frame("row.number"=queryHits(hits),"E6_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E6_bina<-length_E6_bina %>% group_by(row.number) %>% summarise(across(E6_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E6_bina<-length_E6_bina %>% mutate(E6_overlap=replace(E6_overlap, E6_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E6_bina<-left_join(to_merge,length_E6_bina, by="row.number")
+
+#E7
+#1 overlaps
+hits<-findOverlaps(a,E7, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E7[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E7_bina<-data.frame("row.number"=queryHits(hits),"E7_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E7_bina<-length_E7_bina %>% group_by(row.number) %>% summarise(across(E7_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E7_bina<-length_E7_bina %>% mutate(E7_overlap=replace(E7_overlap, E7_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E7_bina<-left_join(to_merge,length_E7_bina, by="row.number")
+
+#E8
+#1 overlaps
+hits<-findOverlaps(a,E8, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E8[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E8_bina<-data.frame("row.number"=queryHits(hits),"E8_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E8_bina<-length_E8_bina %>% group_by(row.number) %>% summarise(across(E8_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E8_bina<-length_E8_bina %>% mutate(E8_overlap=replace(E8_overlap, E8_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E8_bina<-left_join(to_merge,length_E8_bina, by="row.number")
+
+#E9
+#1 overlaps
+hits<-findOverlaps(a,E9, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E9[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E9_bina<-data.frame("row.number"=queryHits(hits),"E9_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E9_bina<-length_E9_bina %>% group_by(row.number) %>% summarise(across(E9_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E9_bina<-length_E9_bina %>% mutate(E9_overlap=replace(E9_overlap, E9_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E9_bina<-left_join(to_merge,length_E9_bina, by="row.number")
+
+#E10
+#1 overlaps
+hits<-findOverlaps(a,E10, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E10[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E10_bina<-data.frame("row.number"=queryHits(hits),"E10_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E10_bina<-length_E10_bina %>% group_by(row.number) %>% summarise(across(E10_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E10_bina<-length_E10_bina %>% mutate(E10_overlap=replace(E10_overlap, E10_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E10_bina<-left_join(to_merge,length_E10_bina, by="row.number")
+
+#E11
+#1 overlaps
+hits<-findOverlaps(a,E11, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E11[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E11_bina<-data.frame("row.number"=queryHits(hits),"E11_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E11_bina<-length_E11_bina %>% group_by(row.number) %>% summarise(across(E11_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E11_bina<-length_E11_bina %>% mutate(E11_overlap=replace(E11_overlap, E11_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E11_bina<-left_join(to_merge,length_E11_bina, by="row.number")
+
+#merge all
+bina_overlaps<-left_join(full_length_E1_bina,full_length_E2_bina) %>% left_join(full_length_E3_bina) %>% left_join(full_length_E4_bina) %>% left_join(full_length_E5_bina) %>% left_join(full_length_E6_bina) %>% left_join(full_length_E7_bina) %>% left_join(full_length_E8_bina) %>% left_join(full_length_E9_bina) %>% left_join(full_length_E10_bina) %>% left_join(full_length_E11_bina) %>% rowwise() %>% mutate(sum_overlap= sum(c(E1_overlap,E2_overlap,E3_overlap,E4_overlap,E5_overlap,E6_overlap,E7_overlap,E8_overlap,E9_overlap,E10_overlap,E11_overlap), na.rm=TRUE )) %>% mutate(Rest_overlap= 1000-sum_overlap) %>%dplyr::select(-c(sum_overlap, row.number)) %>% replace(is.na(.), 0)
+
+
+#bina_overlaps
+
+
+#pivot to longer for plot
+bina_long<-bina_overlaps %>% pivot_longer(!bin, names_to = "region", values_to = "range") %>% mutate("sample_name" = print(sample_names[i]))
+
+bottom10_tobind<-rbind(bottom10_tobind,bina_long)
+#how to merge the two
+#plot for two
+#bina_long %>% ggplot(aes(y=region, fill=range)) +geom_bar(position= "fill")
+}
+#full_length_E2_bina
+#bina_overlaps %>% filter(Rest_overlap>0)
+```
+
+```{r}
+bottom10_tobind %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#convert sample name to factor to keep specific order
+#test
+bottom10_tobind2<-bottom10_tobind
+bottom10_tobind2$sample_name<- factor(bottom10_tobind2$sample_name, levels=c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786_as3A","GSM748786_as3B","GSM748787_as3A","GSM748787_as3B"))
+
+bottom10_tobind2$region<- factor(bottom10_tobind2$region, levels=c("E1_overlap","E2_overlap","E3_overlap","E4_overlap","E5_overlap","E6_overlap","E7_overlap","E8_overlap","E9_overlap","E10_overlap","E11_overlap", "Rest_overlap")) 
+
+plot<-bottom10_tobind2 %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Chromatin state Annotation of Bottom 10% ranked 1kb tiles") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_manual(values=mycolours) +stat_summary(fun = "mean", geom = "text", aes(label = round(..y.., 0)),position = position_stack(vjust = 0.5)) +
+stat_summary(fun = "mean", geom = "text", aes(label = round(..y.., 0)),position = position_stack(vjust = 0.5))
+
+
+ggsave("../figures/ChromHMM_Annotation_of_bins/1kb_windows/unstranded_bins/Bottom10_percent.png", plot = plot)
+  plot
+plot<-bottom10_tobind2 %>% filter(!region%in%c("E1_overlap","E9_overlap","E11_overlap","Rest_overlap", "E6_overlap","E7_overlap","E8_overlap"))%>% filter(!sample_name %in% c("GSM748786_as3A","GSM748786_as3B")) %>%  ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Chromatin state Annotation of Bottom 10% ranked 1kb-sized genomic intervals") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d() +theme(axis.text.x=element_text(size=10), axis.text.y=element_text(size=10))+
+  stat_summary(fun = "mean", geom = "text", aes(label = round(..y.., 0),colour="red"),
+               position = position_stack(vjust = 0.5))
+ggsave("../figures/Figures_for_report/chromHMM_annotation_of_bins/CpG/with_numbers/Bottom10_percent.png", plot = plot)
+  
+bottom10_tobind2 %>% filter(!region%in%c("E1_overlap","E9_overlap","E11_overlap","Rest_overlap", "E6_overlap","E7_overlap","E8_overlap"))%>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Chromatin state Annotation of Bottom 10% ranked 1kb tiles") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_manual(values=mycolours) +stat_summary(fun = "mean", geom = "text", aes(label = round(..y.., 0)),position = position_stack(vjust = 0.5)) +
+stat_summary(fun = "mean", geom = "text", aes(label = round(..y.., 0)),position = position_stack(vjust = 0.5))  
+
+
+
+plot<-bottom10_tobind2 %>% filter(!region%in%c("E1_overlap","E9_overlap","E11_overlap","Rest_overlap", "E6_overlap","E7_overlap","E8_overlap"))%>% filter(!sample_name %in% c("GSM748786_as3A","GSM748786_as3B")) %>%  ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Chromatin state Annotation of Bottom 10% ranked 1kb-sized genomic intervals") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d() +theme(axis.text.x=element_text(size=10), axis.text.y=element_text(size=10))
+ggsave("../figures/Figures_for_report/chromHMM_annotation_of_bins/CpG/Bottom10_percent.png", plot = plot)
+
+```
+
+
+
+
+annotate all the bins
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786") #modified
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1","WT")
+chromhmm_tobind_all<-data.frame() #used to rbind all dfs together
+for(i in 1:7){
+a<-readRDS(file = paste("../data/processed/bins/CpGs/1kb/", sample_names[i],".rds",sep=""))
+a<-a %>% makeGRangesFromDataFrame(keep.extra.columns = T)  #convert to granges
+a<-a %>% filter(CG_num>4)
+a<-a %>% filter(!is.na(Purine_num) & !is.na(Pyrimidine_num)) #have at least one from both
+a<- a %>% filter(Purine_num>1 & Pyrimidine_num>1)
+##PROMOTERS 1 
+##E1 1 
+
+#1 overlaps
+hits<-findOverlaps(a,E1, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E1[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E1_bina<-data.frame("row.number"=queryHits(hits),"E1_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E1_bina<-length_E1_bina %>% group_by(row.number) %>% summarise(across(E1_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E1_bina<-length_E1_bina %>% mutate(E1_overlap=replace(E1_overlap, E1_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E1_bina<-left_join(to_merge,length_E1_bina, by="row.number")
+#sanity check
+check_full_length_E1_bina<-full_join(to_merge,length_E1_bina, by="row.number")
+
+##E2
+#1 overlaps
+hits<-findOverlaps(a,E2, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E2[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E2_bina<-data.frame("row.number"=queryHits(hits),"E2_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E2_bina<-length_E2_bina %>% group_by(row.number) %>% summarise(across(E2_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E2_bina<-length_E2_bina %>% mutate(E2_overlap=replace(E2_overlap, E2_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E2_bina<-left_join(to_merge,length_E2_bina, by="row.number")
+
+# E3
+#1 overlaps
+hits<-findOverlaps(a,E3, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E3[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E3_bina<-data.frame("row.number"=queryHits(hits),"E3_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E3_bina<-length_E3_bina %>% group_by(row.number) %>% summarise(across(E3_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E3_bina<-length_E3_bina %>% mutate(E3_overlap=replace(E3_overlap, E3_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E3_bina<-left_join(to_merge,length_E3_bina, by="row.number")
+
+#E4
+#1 overlaps
+hits<-findOverlaps(a,E4, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E4[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E4_bina<-data.frame("row.number"=queryHits(hits),"E4_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E4_bina<-length_E4_bina %>% group_by(row.number) %>% summarise(across(E4_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E4_bina<-length_E4_bina %>% mutate(E4_overlap=replace(E4_overlap, E4_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E4_bina<-left_join(to_merge,length_E4_bina, by="row.number")
+
+#E5
+#1 overlaps
+hits<-findOverlaps(a,E5, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E5[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E5_bina<-data.frame("row.number"=queryHits(hits),"E5_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E5_bina<-length_E5_bina %>% group_by(row.number) %>% summarise(across(E5_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E5_bina<-length_E5_bina %>% mutate(E5_overlap=replace(E5_overlap, E5_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E5_bina<-left_join(to_merge,length_E5_bina, by="row.number")
+
+#E6
+#1 overlaps
+hits<-findOverlaps(a,E6, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E6[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E6_bina<-data.frame("row.number"=queryHits(hits),"E6_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E6_bina<-length_E6_bina %>% group_by(row.number) %>% summarise(across(E6_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E6_bina<-length_E6_bina %>% mutate(E6_overlap=replace(E6_overlap, E6_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E6_bina<-left_join(to_merge,length_E6_bina, by="row.number")
+
+#E7
+#1 overlaps
+hits<-findOverlaps(a,E7, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E7[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E7_bina<-data.frame("row.number"=queryHits(hits),"E7_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E7_bina<-length_E7_bina %>% group_by(row.number) %>% summarise(across(E7_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E7_bina<-length_E7_bina %>% mutate(E7_overlap=replace(E7_overlap, E7_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E7_bina<-left_join(to_merge,length_E7_bina, by="row.number")
+
+#E8
+#1 overlaps
+hits<-findOverlaps(a,E8, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E8[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E8_bina<-data.frame("row.number"=queryHits(hits),"E8_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E8_bina<-length_E8_bina %>% group_by(row.number) %>% summarise(across(E8_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E8_bina<-length_E8_bina %>% mutate(E8_overlap=replace(E8_overlap, E8_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E8_bina<-left_join(to_merge,length_E8_bina, by="row.number")
+
+#E9
+#1 overlaps
+hits<-findOverlaps(a,E9, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E9[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E9_bina<-data.frame("row.number"=queryHits(hits),"E9_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E9_bina<-length_E9_bina %>% group_by(row.number) %>% summarise(across(E9_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E9_bina<-length_E9_bina %>% mutate(E9_overlap=replace(E9_overlap, E9_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E9_bina<-left_join(to_merge,length_E9_bina, by="row.number")
+
+#E10
+#1 overlaps
+hits<-findOverlaps(a,E10, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E10[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E10_bina<-data.frame("row.number"=queryHits(hits),"E10_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E10_bina<-length_E10_bina %>% group_by(row.number) %>% summarise(across(E10_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E10_bina<-length_E10_bina %>% mutate(E10_overlap=replace(E10_overlap, E10_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E10_bina<-left_join(to_merge,length_E10_bina, by="row.number")
+
+#E11
+#1 overlaps
+hits<-findOverlaps(a,E11, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],E11[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_E11_bina<-data.frame("row.number"=queryHits(hits),"E11_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_E11_bina<-length_E11_bina %>% group_by(row.number) %>% summarise(across(E11_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_E11_bina<-length_E11_bina %>% mutate(E11_overlap=replace(E11_overlap, E11_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_E11_bina<-left_join(to_merge,length_E11_bina, by="row.number")
+
+#merge all
+bina_overlaps<-left_join(full_length_E1_bina,full_length_E2_bina) %>% left_join(full_length_E3_bina) %>% left_join(full_length_E4_bina) %>% left_join(full_length_E5_bina) %>% left_join(full_length_E6_bina) %>% left_join(full_length_E7_bina) %>% left_join(full_length_E8_bina) %>% left_join(full_length_E9_bina) %>% left_join(full_length_E10_bina) %>% left_join(full_length_E11_bina) %>% rowwise() %>% mutate(sum_overlap= sum(c(E1_overlap,E2_overlap,E3_overlap,E4_overlap,E5_overlap,E6_overlap,E7_overlap,E8_overlap,E9_overlap,E10_overlap,E11_overlap), na.rm=TRUE )) %>% mutate(Rest_overlap= 1000-sum_overlap) %>%dplyr::select(-c(sum_overlap, row.number)) %>% replace(is.na(.), 0)
+
+
+#bina_overlaps
+
+
+#pivot to longer for plot
+bina_long<-bina_overlaps %>% pivot_longer(!bin, names_to = "region", values_to = "range") %>% mutate("sample_name" = print(sample_names[i]))
+
+chromhmm_tobind_all<-rbind(chromhmm_tobind_all,bina_long)
+#how to merge the two
+#plot for two
+#bina_long %>% ggplot(aes(y=region, fill=range)) +geom_bar(position= "fill")
+saveRDS(chromhmm_tobind_all,file=paste0("../data/processed/bins/CpGs/1kb/Annotatedbins_chromhmm/", "a_and_bfull.rds"))
+}
+#full_length_E
+```
+plot
+```{r}
+chromhmm_tobind_all<-readRDS("../data/processed/bins/CpGs/1kb/Annotatedbins_chromhmm/a_and_bfull.rds")
+tobind_all %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#convert sample name to factor to keep specific order
+#test
+chromhmm_tobind_all2<-chromhmm_tobind_all
+chromhmm_tobind_all2$sample_name<- factor(chromhmm_tobind_all2$sample_name, levels=c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786"))
+
+plot<-chromhmm_tobind_all2 %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Genomic Annotation of Full  1kb tiles") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d() +theme(axis.text.x=element_text(size=10), axis.text.y=element_text(size=10))+
+  stat_summary(fun = "mean", geom = "text", aes(label = round(..y.., 0),colour="red"),
+               position = position_stack(vjust = 0.5))
+
+#plot<-chromhmm_tobind_all2 %>% filter(sample_name=="GSM748786") %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Genomic Annotation of Full  1kb tiles") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d() +theme(axis.text.x=element_text(size=10), axis.text.y=element_text(size=10))+
+#  stat_summary(fun = "mean", geom = "text", aes(label = round(..y.., 0),colour="red"),
+#               position = position_stack(vjust = 0.5))
+
+ggsave("../figures/Figures_for_report/chromHMM_annotation_of_bins/CpG/with_numbers/ALL.png", plot = plot)
+#ggsave("../figures/Figures_for_report/genomic_annotation_of_bins/CpG/ALL.png", plot = plot)
+  plot
+  
+  
+  
+  chromhmm_tobind_all2 %>% group_by(sample_name,region) %>% summarise(mean=mean(range))
+  
+  
+  chromhmm_tobind_all2 %>% filter(sample_name %in% c("GSM4594635","GSM1382253","GSM2533056")) %>% group_by(region) %>% summarise(mean=mean(range))
+  chromhmm_tobind_all2 %>% filter(sample_name %in% c("GSM4837324","GSM1382256","GSM1545748")) %>% group_by(region) %>% summarise(mean=mean(range))
+  chromhmm_tobind_all2 %>% filter(sample_name %in% c("GSM748786")) %>% group_by(region) %>% summarise(mean=mean(range))
+  
+  
+  
+plot<-chromhmm_tobind_all2 %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Genomic Annotation of Full  1kb tiles") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d() +theme(axis.text.x=element_text(size=10), axis.text.y=element_text(size=10))
+
+
+ggsave("../figures/Figures_for_report/chromHMM_annotation_of_bins/CpG/ALL.png", plot = plot)
+```
+PLOT FOR ALL BINS
+```{r}
+
+plot_mean_all<-chromhmm_tobind_all2 %>% group_by(sample_name,region) %>% summarise(mean=mean(range))  
+plot_mean_all$region<- factor(plot_mean_all$region, levels=c("E1_overlap","E2_overlap","E3_overlap","E4_overlap","E5_overlap","E6_overlap","E7_overlap","E8_overlap","E9_overlap","E10_overlap","E11_overlap", "Rest_overlap")) 
+
+plot<-plot_mean_all %>% filter(!region%in%c("E1_overlap","E9_overlap","E11_overlap","Rest_overlap", "E6_overlap","E7_overlap","E8_overlap"))%>% filter(!sample_name %in% c("GSM748786")) %>%  ggplot(aes(x=sample_name, y=mean, fill=region)) +geom_bar(stat="identity") + labs(x="", y="", fill="", title = "Chromatin state Annotation of All 1kb-sized genomic intervals") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d() +theme(axis.text.x=element_text(size=10), axis.text.y=element_text(size=10))+
+  stat_summary(fun = "mean", geom = "text", aes(label = round(..y.., 0),colour="red"),
+               position = position_stack(vjust = 0.5))
+ggsave("../figures/Figures_for_report/chromHMM_annotation_of_bins/CpG/with_numbers/ALL.png", plot = plot)
+
+plot_mean_all %>% filter(!region%in%c("E1_overlap","E9_overlap","E11_overlap","Rest_overlap", "E6_overlap","E7_overlap","E8_overlap")) %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Genomic Annotation of Full  1kb tiles") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d() +theme(axis.text.x=element_text(size=10), axis.text.y=element_text(size=10))+
+  stat_summary(fun = "mean", geom = "text", aes(label = round(..y.., 0),colour="red"),
+               position = position_stack(vjust = 0.5))
+
+
+plot<-plot_mean_all %>% filter(!region%in%c("E1_overlap","E9_overlap","E11_overlap","Rest_overlap", "E6_overlap","E7_overlap","E8_overlap"))%>% filter(!sample_name %in% c("GSM748786")) %>%  ggplot(aes(x=sample_name, y=mean, fill=region)) +geom_bar(stat="identity") + labs(x="", y="", fill="", title = "Chromatin state Annotation of All 1kb-sized genomic intervals") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d() +theme(axis.text.x=element_text(size=10), axis.text.y=element_text(size=10))
+ggsave("../figures/Figures_for_report/chromHMM_annotation_of_bins/CpG/ALL.png", plot = plot)
+
+
+plot<-plot_mean_all %>% filter(!region%in%c("E1_overlap","E9_overlap","E11_overlap","Rest_overlap", "E6_overlap","E7_overlap","E8_overlap"))%>% ggplot(aes(x=sample_name, y=mean, fill=region)) +geom_bar(stat="identity") + labs(x="", y="", fill="", title = "Chromatin state Annotation of All 1kb-sized genomic intervals") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d() +theme(axis.text.x=element_text(size=10), axis.text.y=element_text(size=10))
+ggsave("../figures/Figures_for_report/chromHMM_annotation_of_bins/CpG/ALL_withWT.png", plot = plot)
+
+plot<-plot_mean_all %>% filter(!region%in%c("E1_overlap","E9_overlap","E11_overlap","Rest_overlap", "E6_overlap","E7_overlap","E8_overlap")) %>%  ggplot(aes(x=sample_name, y=mean, fill=region)) +geom_bar(stat="identity") + labs(x="", y="", fill="", title = "Chromatin state Annotation of All 1kb-sized genomic intervals") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d() +theme(axis.text.x=element_text(size=10), axis.text.y=element_text(size=10))+
+  stat_summary(fun = "mean", geom = "text", aes(label = round(..y.., 0),colour="red"),
+               position = position_stack(vjust = 0.5))
+ggsave("../figures/Figures_for_report/chromHMM_annotation_of_bins/CpG/with_numbers/ALL_withWT.png", plot = plot)
+```
+
+```{r}
+chromhmm_tobind_all2
+```
+

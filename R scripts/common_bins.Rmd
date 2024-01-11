@@ -1,0 +1,56 @@
+---
+title: "Common Bins"
+author: "Amalia"
+date: "2023-07-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+This is a script shwoing how to find bins that are common between samples
+```{r}
+library(GenomicRanges)
+library(tidyverse)
+library (purrr)
+library(plyranges)
+library(rlist)
+```
+the samples with enough coverage
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786","GSM748787")
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1","WT","WT") #I have to use these as names as well
+```
+
+Find the bins that "pass" the filters in all
+```{r}
+for(i in 1:8){
+  c<-readRDS(file=paste0("../data/processed/bins/CpGs/1kb/", sample_names[i], ".RDS"))
+  #We are going to filter out the bins that contain less than 3 mapped CG 
+  c<-c %>% filter(CG_num>4)
+  c<-c %>% filter(!is.na(Purine_num) & !is.na(Pyrimidine_num)) #have at least one from both
+  c<- c %>% filter(Purine_num>1 & Pyrimidine_num>1) #have more than one for both
+  assign(sample_names[i], c) #gives variable name
+}
+#save bin ids of each sample in a list 
+mu_list_4<-list() #empty list
+# we are going to paste there all the top bins to use later with ggven 
+
+for(i in 1:8){#save them in a list,named by their sample name
+a<-get(sample_names[i]) %>% select(bin)#"get" calls the data by the variable name
+colnames(a)<-sample_names[i] 
+a <-as.vector(a)
+mu_list_4[sample_names[i]]<-a 
+
+}
+Reduce(intersect, mu_list_4[1:3])
+Reduce(intersect, mu_list_4[4:6])
+Reduce(intersect, mu_list_4[7:8])
+
+only_common<-Reduce(intersect, mu_list_4[1:8]) #find common in all 8
+
+a<-print(intersect(GSM4594635$bin,GSM1382253$bin))
+print(intersect(a,GSM2533056$bin))
+
+```
+

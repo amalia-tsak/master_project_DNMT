@@ -1,0 +1,135 @@
+---
+title: "Bin_CHH_genome_keepingstrand"
+author: "Amalia"
+date: "2023-11-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#Bin the CpG files into 1kb/10kb sized windows
+We want to bin our genome into tiles, and get the ratio of methylation in purines and pyrimidines in each of these subgroups.
+In order To do that we have to calculate the average methylation of each CGN, and we will also count the number of mapped CGNs, which is what this script will do.
+We will keep the strand 
+
+load the libraries
+```{r, message=FALSE}
+library(GenomicRanges)
+library(tidyverse)
+library (purrr)
+library(plyranges)
+library(rlist)
+library(BSgenome.Mmusculus.UCSC.mm9)
+```
+
+As a first step, we have to divide the CHHs into the group. We do so by "annotating" each C with the number of (genomic) tile it falls into. We will remove the C that are followed by a G
+```{r}
+#we get the tiles by cutting the mm9 genome 
+tiles<-tileGenome(seqinfo(Mmusculus),tilewidth = 1000, cut.last.tile.in.chrom = TRUE)
+
+tile.df<-as.data.frame(tiles) #used later 
+
+#add strand
+
+
+#
+tileplus_df<-tile.df
+tile_plus_df<-tile.df %>% mutate(strand = "+")
+tile_minus_df<-tile.df %>% mutate(strand = "-")
+tile_plus<-tile_plus_df %>% makeGRangesFromDataFrame()
+tile_minus<-tile_minus_df %>% makeGRangesFromDataFrame()
+
+seqinfo(tile_minus)<-Seqinfo(genome = "mm9")
+#test
+#a_3<-GenomicRanges::trim(tile_minus) #because we might get out of bounds
+```
+We will first bin each strand separately (basically we will use either + or - for overlapping) and we will name the bin accordingly (so where we had bin 1000, now we will have bin 1000_plus and bin 1000_minus)
+get the average meth in each bin and total number 
+```{r}
+#create a vector holding the names of all the sample names
+
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+Total_chr  <-  c(paste("chr", 1:19, sep=''), 'chrX','chrY')
+for(i in 1:10){
+  all_bins<-data.frame() #empty dataframe to add to inside the loop
+  for(j in 1:21){
+  a<-readRDS(file = paste0("../data/raw_data/CHH/", sample_names[i],"_", Total_chr[j],".rds"))
+  a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M","score","CGN_seq")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>4 & a$T<101] #filter for at least 5 reads, to have enough points (10 is too strict)
+  #add the bins in the sample = information about which tile it belongs to
+  a<-a %>% plyranges::filter(CGN_seq!="CNN")
+  a<-a %>% filter(!CGN_seq %in% c("CGA", "CGG","CGC","CGT"))#filter out the CpGs
+  ah_plus<-findOverlaps(a,tile_plus) #for plus strand
+  ah_minus<-findOverlaps(a,tile_minus) #for minus strand
+  ##we will add column about the "position" (in which 1kb bin it falls into)
+  mcols(a)$bin<-NA
+  #mcols(a)$bin[queryHits(ah)]<-subjectHits(ah)
+  mcols(a)$bin[queryHits(ah_plus)]<-subjectHits(ah_plus)
+  mcols(a)$bin[queryHits(ah_minus)]<-subjectHits(ah_minus)
+  ## by doing tiles[ bin number] you can find the bin 
+  a<-a %>% mutate(bin = ifelse(strand=="+", paste0(bin, "+"), paste0(bin, "-"))) #add info about which strand this bin is from
+  d<-as.data.frame(a)
+  
+  #get average meth score per bin and number of cpgs
+  avg<- d %>% group_by(bin) %>% summarise(avg_meth=mean(score))
+  tot<- d %>% group_by(bin) %>% summarise(CG_num=n())
+  totl<-merge(avg, tot, by="bin")
+  #for arranging
+  totl<-totl %>% mutate(bin_only_number= str_sub(bin, 1,nchar(bin)-1)) %>% mutate_at('bin_only_number', as.integer)
+  totl<-totl %>% arrange(bin_only_number)
+  
+  #get average meth score per CGN per bin
+  e<-d %>% group_by(bin,CGN_seq) %>% summarise(mean_meth=mean(score))
+  e<-e %>% spread(CGN_seq,mean_meth)
+  
+  d<-d %>% mutate(pur_pyr = case_when(
+    endsWith(CGN_seq, "A") ~ "Purine",
+    endsWith(CGN_seq, "G") ~ "Purine",
+    endsWith(CGN_seq, "T") ~ "Pyrimidine",
+    endsWith(CGN_seq, "C") ~ "Pyrimidine",
+    ))
+  #d<- d %>% mutate(pur_pyr = dplyr::case_when(CGN_seq == "CAA" | CGN_seq == "CAG"|CGN_seq == "CTA" | CGN_seq == "CTG"|CGN_seq == "CGA" | CGN_seq == "CGG"|CGN_seq == "CCA" | CGN_seq == "CCG"| ~"Purine", CGN_seq == "CAT" | CGN_seq == "CAC"|CGN_seq == "CTT" | CGN_seq == "CTC"| CGN_seq == "CGT" | CGN_seq == "CGC"| CGN_seq == "CCT" | CGN_seq == "CCC"|  ~ "Pyrimidine"))
+  e_p<-d %>% group_by(bin,pur_pyr) %>% summarise(mean_meth=mean(score))
+  e_p<-e_p %>% spread(pur_pyr,mean_meth)
+  e<-merge(e, e_p, by="bin")
+  #arraneg correctly
+  e<-e %>% mutate(bin_only_number= str_sub(bin, 1,nchar(bin)-1)) %>% mutate_at('bin_only_number', as.integer)
+  e<-e %>% arrange(bin_only_number)
+  
+  colnames(e)<-paste(colnames(e), "meth",sep="_" )
+  
+  #get number of each CGN per bin
+  e_2<-d %>% group_by(bin, CGN_seq) %>% summarise(count=n(), .groups = 'drop')
+  e_2<-e_2 %>% spread(CGN_seq,count)
+  e_p2<-d %>% group_by(bin,pur_pyr) %>% summarise(count=n(), .groups = 'drop')
+  e_p2<-e_p2 %>% spread(pur_pyr,count)
+  e_2<-merge(e_2, e_p2, by="bin")
+  colnames(e_2)<-paste(colnames(e_2), "num", sep = "_")
+  e_2<-e_2 %>% mutate(bin_only_number= str_sub(bin_num, 1,nchar(bin_num)-1)) %>% mutate_at('bin_only_number', as.integer) #get everything except the last , so only number
+  e_2<-e_2 %>% mutate(bin_strand= str_sub(bin_num, start= -1)) #get only last, so strand
+  e_2<-e_2 %>% arrange(bin_only_number)#reorder so that we have normal order of bins
+ 
+  df<-cbind(e,e_2)
+  df<-cbind(totl,df)
+  df_2<-df %>% select(unique(colnames(.)))
+  df_2<-df_2 %>% select(-c("bin_num", "bin_meth")) 
+  pf<-tile.df %>% dplyr::mutate(rn = row_number()) %>% filter(rn %in% e_2$bin_only_number) %>% dplyr::rename(bin_only_number = rn) #twice
+  df_2<-left_join(df_2,pf, by="bin_only_number")
+  #mutate teh strand and change it again to factor
+  df_2<-df_2 %>% dplyr::mutate(new_strand = as.factor(bin_strand)) %>% select(-c("strand", "bin_strand")) %>% dplyr::rename(strand=new_strand)
+  df_2<-df_2 %>% select(- "bin_only_number_meth")
+  all_bins<-bind_rows(df_2,all_bins)
+  
+}
+  saveRDS(all_bins, file=paste0("../data/processed/bins_with_strand_information/CHH/1kb/", sample_names[i], ".RDS"))
+}
+#df_2 %>% mutate(new_strand = as.factor(bin_strand)) %>% select(-c("strand", "bin_strand")) %>% rename(bin=bin_meth) %>% rename(strand=new_strand)
+```
+
+```{r}
+readRDS("../data/processed/bins_with_strand_information/CHH/1kb/GSM4594635.RDS")
+```
+

@@ -1,0 +1,282 @@
+---
+title: "Examine binned samples"
+author: "Amalia"
+date: "2023-07-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(GenomicRanges)
+library(tidyverse)
+library (purrr)
+library(plyranges)
+library(rlist)
+```
+
+
+From the binned genome, we want to find regions of interest. 
+
+We will rank the tiles according to one characteristic. These characheristics could be:
+average methylation of the bin, proportion of methylation in the bin explained by purines/ pyrimidines (we will chose according to the preference found in the whole genome), and "normalized" ratio of methylation in purines over pyrimidines 
+
+
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1","DNMT3B1","WT","WT") #I have to use these as names as well
+```
+For average methylation
+We want to calculate the average methylation on each bin and get the bins with the highest rank (so regions with higher methylation)
+```{r}
+for(i in 1:10){
+  c<-readRDS(file=paste0("../data/processed/bins/CpGs/1kb/", sample_names[i], ".RDS"))
+  #We are going to filter out the bins that contain less than 3 mapped CG 
+  c<-c %>% filter(CG_num>4)
+  c$rank<-rank(-c$avg_meth)#Rank references the position of the value in the sorted vector and is in the same order as the original sequence
+  d<-c %>% arrange(rank) #arraange according to rank (we used rank first and not justy arrange on our values immediatelly cause we have a lot of rows with the exact same value)
+# Now we want to exract x number of bins with highest rank. Lets say 5%
+#to get that 5% we are going to count the number of rows and use 0.05*that and keep the first rows
+  t<-round(nrow(c)*0.05) # find n for top 5 %
+  e<-head(d,t)
+  assign(sample_names[i], e) #gives variable name
+}
+
+#Now we have all the dataframes, I will only keep the top bins, to see whether there is overlap between samples
+mu_list<-list() #empty list
+# we are going to paste there all the top bins to use later with ggven 
+
+for(i in 1:10){
+a<-get(sample_names[i]) %>% select(bin)#"get" calls the data by the variable name
+colnames(a)<-sample_names[i] 
+a <-as.vector(a)
+mu_list[sample_names[i]]<-a
+
+}
+
+
+### for plotting
+library(ggvenn)
+ggvenn(mu_list[c(1,2,4)], stroke_size = 0.5, set_name_size = 2.5)
+ggvenn(mu_list[1:4], stroke_size = 0.5, set_name_size = 2.5)
+ggvenn(mu_list[5:8], stroke_size = 0.5, set_name_size = 2.5)
+ggvenn(mu_list[9:10], stroke_size = 0.5, set_name_size = 2.5)
+ggvenn(mu_list[c(5,7,8)], stroke_size = 0.5, set_name_size = 2.5)
+
+ggvenn(mu_list[c(1,2,5)], stroke_size = 0.5, set_name_size = 2.5)
+
+laal<-ggvenn(mu_list)
+attributes(laal)
+inter<-euler(mu_list)
+plot(inter)
+attributes(inter)
+inter$original.values
+```
+For purine/pyrimidine methylation
+We want to calculate the purine methylation / pyrimidine methylation ratio in each bin
+We will filter out bins that have only mapped CGs followed by purines or only by purines.
+We will create an artificial column where we add +0.01 on purine and pyrimidine methylation 
+Because we would otherwise (because of the many 0 values ) we would get a lot of ratios that are equal to 0 or infinity.
+
+We will have a column with the log2 transformation of that ratio because that way, a ratio can be comparable when its reversed {eg the ratio of 0.8/0.2 vs 0.2/0.8 would have an equal absolute value of 2 whereas the values without log2 are 4 and 0.25}
+```{r}
+# I will not do it for the WT cells now
+for(i in 1:8){
+  c<-readRDS(file=paste0("../data/processed/bins/CpGs/1kb/", sample_names[i], ".RDS"))
+  #We are going to filter out the bins that have NA at pur number or pyrimidine number
+  c<-c %>% filter(!is.na(Purine_num) & !is.na(Pyrimidine_num))
+  c<- c %>% filter(Purine_num>1 & Pyrimidine_num>1) # if we are being strict
+  #now create columns with modified methylation
+  c<-c %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+  c<-c %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  #now create col with ratio of those two
+  c <-c %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  c<-c %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr)) 
+  c$rank<-rank(-c$ratio_purpyr_log)#Rank references the position of the value in the sorted vector and is in the same order as the original sequence 
+  #most negative will be rank1 
+  #negatives have a pyrimidine preference 
+  # arrange differently for A and B, we want to get the most negatives for 3A and the most positives for 3B
+  t<-round(nrow(c)*0.05)# find n for top 5 %
+  print(t)
+  if(i<=4){
+    d<-c %>% arrange(-rank)
+    e<-head(d,t)
+    assign(sample_names[i], e) 
+    #get the ones with biggest preference for pyrim (for 3A)
+  }else{
+    d<-c %>% arrange(rank)
+    e<-head(d,t)
+    assign(sample_names[i], e)
+    #get the ones with biggest preference for pyrim (for 3B)
+  }
+}
+GSM1382253  
+#Now we have all the dataframes, I will only keep the top bins, to see whether there is overlap between samples
+mu_list_2<-list() #empty list
+# we are going to paste there all the top bins to use later with ggven 
+
+for(i in 1:8){
+a<-get(sample_names[i]) %>% select(bin)#"get" calls the data by the variable name
+colnames(a)<-sample_names[i] 
+a <-as.vector(a)
+mu_list_2[sample_names[i]]<-a
+
+}
+  
+### for plotting
+library(ggvenn)
+ggvenn(mu_list_2[c(1,2,4)], stroke_size = 0.5, set_name_size = 2.5)
+ggvenn(mu_list_2[1:4], stroke_size = 0.5, set_name_size = 2.5)
+ggvenn(mu_list_2[5:8], stroke_size = 0.5, set_name_size = 2.5)
+ggvenn(mu_list_2[c(5,7,8)], stroke_size = 0.5, set_name_size = 2.5)
+
+
+
+ggvenn(mu_list_2[c(1,2,8)], stroke_size = 0.5, set_name_size = 2.5)
+
+laal<-ggvenn(mu_list)
+attributes(laal)
+inter<-euler(mu_list)
+plot(inter)
+attributes(inter)
+inter$original.values
+#GSM1382253
+
+#library(VennDiagram)
+
+library(eulerr)
+inter<-euler(mu_list_2[c(1,2,4)])
+plot(inter, quantities = TRUE)
+ggvenn(mu_list[c(1,2,4)], stroke_size = 0.5, set_name_size = 2.5)
+error_plot(inter)
+```
+get the ones with preference for pyrimidine
+```{r}
+for(i in 1:8){
+  c<-readRDS(file=paste0("../data/processed/bins/CpGs/1kb/", sample_names[i], ".RDS"))
+  #We are going to filter out the bins that have NA at pur number or pyrimidine number
+  c<-c %>% filter(!is.na(Purine_num) & !is.na(Pyrimidine_num))
+  c<- c %>% filter(Purine_num>1 & Pyrimidine_num>1) # if we are being strict
+  #now create columns with modified methylation
+  c<-c %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+  c<-c %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  #now create col with ratio of those two
+  c <-c %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  c<-c %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr)) 
+  c$rank<-rank(-c$ratio_purpyr_log)#Rank references the position of the value in the sorted vector and is in the same order as the original sequence 
+  #most negative will be rank1 
+  #negatives have a pyrimidine preference 
+  # arrange differently for A and B, we want to get the most negatives for 3A and the most positives for 3B
+  t<-round(nrow(c)*0.05)# find n for top 5 %
+  print(t)
+  d<-c %>% arrange(-rank)
+  e<-head(d,t)
+  assign(sample_names[i], e)
+  
+}
+GSM1382253  
+#Now we have all the dataframes, I will only keep the top bins, to see whether there is overlap between samples
+mu_list_3<-list() #empty list
+# we are going to paste there all the top bins to use later with ggven 
+
+for(i in 1:8){
+a<-get(sample_names[i]) %>% select(bin)#"get" calls the data by the variable name
+colnames(a)<-sample_names[i] 
+a <-as.vector(a)
+mu_list_3[sample_names[i]]<-a
+
+}
+ggvenn(mu_list_2[c(1,2,4)], stroke_size = 0.5, set_name_size = 2.5)
+ggvenn(mu_list_2[1:4], stroke_size = 0.5, set_name_size = 2.5)
+ggvenn(mu_list_2[5:8], stroke_size = 0.5, set_name_size = 2.5)
+ggvenn(mu_list_2[c(5,7,8)], stroke_size = 0.5, set_name_size = 2.5)
+
+
+
+ggvenn(mu_list_2[c(2,4,8)], stroke_size = 0.5, set_name_size = 2.5)
+```
+for purines
+```{r}
+for(i in 1:8){
+  c<-readRDS(file=paste0("../data/processed/bins/CpGs/1kb/", sample_names[i], ".RDS"))
+  #We are going to filter out the bins that have NA at pur number or pyrimidine number
+  c<-c %>% filter(!is.na(Purine_num) & !is.na(Pyrimidine_num))
+  c<- c %>% filter(Purine_num>1 & Pyrimidine_num>1) # if we are being strict
+  #now create columns with modified methylation
+  c<-c %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+  c<-c %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  #now create col with ratio of those two
+  c <-c %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  c<-c %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr)) 
+  c$rank<-rank(-c$ratio_purpyr_log)#Rank references the position of the value in the sorted vector and is in the same order as the original sequence 
+  #most negative will be rank1 
+  #negatives have a pyrimidine preference 
+  # arrange differently for A and B, we want to get the most negatives for 3A and the most positives for 3B
+  t<-round(nrow(c)*0.05)# find n for top 5 %
+  print(t)
+  d<-c %>% arrange(rank)
+  e<-head(d,t)
+  assign(sample_names[i], e)
+  
+}
+GSM1382253  
+#Now we have all the dataframes, I will only keep the top bins, to see whether there is overlap between samples
+mu_list_4<-list() #empty list
+# we are going to paste there all the top bins to use later with ggven 
+
+for(i in 1:8){
+a<-get(sample_names[i]) %>% select(bin)#"get" calls the data by the variable name
+colnames(a)<-sample_names[i] 
+a <-as.vector(a)
+mu_list_4[sample_names[i]]<-a
+
+}
+ggvenn(mu_list_2[c(1,2,4)], stroke_size = 0.5, set_name_size = 2.5)
+ggvenn(mu_list_2[1:4], stroke_size = 0.5, set_name_size = 2.5)
+ggvenn(mu_list_2[5:8], stroke_size = 0.5, set_name_size = 2.5)
+ggvenn(mu_list_2[c(5,7,8)], stroke_size = 0.5, set_name_size = 2.5)
+
+
+
+ggvenn(mu_list_2[c(1,4,8)], stroke_size = 0.5, set_name_size = 2.5)
+```
+
+
+
+Now, we are going to calculate the ratio of methylation of CpGs flanked by purines (CGR) over the methylation of CpGs flanked by pyrimidines (CGY). 
+Firstly we will calculate the same ratio but for mapped CGR/ CGY in each bin, to see if we have a normal distribution. 
+
+
+TEST to create list that holds all the bins that are overlapping between all combinations
+```{r}
+e<-c(1,2,3,4,5,6,7)
+f<-c(1,4,8)
+g<-c(1,2,4,5)
+vcList<-list(e,f,g)
+names(vcList)<-c("e","f","g")
+combos<-Reduce(c,lapply(2:length(vcList),
+               function(x) combn(1:length(vcList),x,simplify = FALSE))) #possible combos
+intr<-lapply(combos, function(x) Reduce(intersect, vcList[x])) #intersect in possible combos
+#this!
+combos2<-Reduce(c,lapply(2:length(vcList),
+               function(x) combn(names(vcList),x, simplify = FALSE))) 
+intr2<-lapply(combos2, function(x) Reduce(intersect, vcList[x])) #intersect in possible combos
+#names(intr2)<-combos2
+names(intr2)<-sapply(combos2, function(i) paste0(i, collapse = "_"))
+intr2
+str(intr2)
+#up to here 
+#combos2<-Reduce(combn(names(vcList), 3, simplify = FALSE))
+
+Reduce(c,lapply(2:length(vcList),
+               function(x) combn(names(vcList),x, collapse= "_" , simplify = FALSE)))
+```
+

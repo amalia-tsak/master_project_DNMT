@@ -1,0 +1,160 @@
+---
+title: "Initial processing of raw data"
+author: "Amalia"
+date: "2023-06-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# This script is used to modify the GRanges holding the methylation we created using QuasR
+We will calculate the percentage of methylation for all GRanges, and will add the downstream base. Additionally we are going to remove regions that fall in unidentified parts of the genome (and remove the GpGs that contain zero reads).
+In a second step, we will remove all the Cytosines that fall into SNPs. 
+
+Load the libraries
+```{r, echo=FALSE}
+library(GenomicRanges)
+library(BSgenome.Mmusculus.UCSC.mm9)
+library(tidyverse)
+library(plyranges)
+```
+We work with the CpG files first 
+```{r}
+#create a vector holding the names of all the sample names
+
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+#for chromosome cleaning
+Total_chr  <-  c(paste("chr", 1:19, sep=''), 'chrX','chrY') #the chromosome names we want to keep
+genome<-BSgenome.Mmusculus.UCSC.mm9 #define reference genome. (to get downstream base)
+#for snp removal
+CG_noSNP<-readRDS("../data/data_from_backup/genome.CpG.woSNP.gr.RDS")
+#increase by 1 base, so that it can overlap with the C in the minus strand as well
+CG_noSNP_2<-resize(CG_noSNP,2)
+
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/raw_data/completely unprocessed/CpG/", sample_names[i],"_add_mCpG.rds" ,sep=""))
+  #remove Reads falling into unmapped parts of the genome =chr_random
+  a_clean<- a[seqnames(a)%in% Total_chr] 
+  
+  #get downstream nucleotide sequence
+  a_clean_3<-resize(a_clean,3) #modify the ranges to get the 2 downstream bases 
+  sequence_a<-getSeq(genome,a_clean_3) #get the sequence
+  x<-as.data.frame(sequence_a)
+  a_clean$CGN_seq<-x$x #add column containg sequence info
+  #name_T<-paste(sample_names[i],"_T",sep="") 
+  
+  #remove ranges with 0 reads, and add column containg methylation score
+  #we have to change column names so that it works inside the loop 
+  b<-a_clean %>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  b<- b %>% filter(T>0) %>% mutate(score = M/T)
+  
+  #now remove the SNPs
+  b<-subsetByOverlaps(b, CG_noSNP_2)
+  
+c<-b %>%  as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand",paste(sample_names[i],"_","T", sep=""),paste(sample_names[i],"_","M", sep=""), "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = TRUE)
+
+saveRDS(c, file = paste("../data/raw_data/CpG/", sample_names[i],"_mCpG.rds" ,sep=""))
+  
+}
+```
+
+now similarly for non-CpG data, without the need to remove unmaped chrs because it was already done in the methylation calling
+```{r}
+#create a vector holding the names of all the sample names
+
+library(stringr)
+genome<-BSgenome.Mmusculus.UCSC.mm9
+
+files <- list.files(path="../data/raw_data/completely unprocessed/CHH", pattern="*.rds", full.names=FALSE, recursive=FALSE)
+
+#files_2<-head(files)
+file_names<- str_extract(files, "[^_]+")
+names(files)<-file_names
+
+#file_names_test<- str_extract(files, "[^.]+") #use later for naming the rds files
+
+lapply(files, function(x){
+  #t <- read.table(x, header=TRUE) # load file
+  #a<-readRDS(x) 
+  a<-readRDS(file= paste("../data/raw_data/completely unprocessed/CHH/", x, sep = "")) #
+  
+  #we change the order, to make process faster
+  #remove ranges with 0 reads, and add column containing methylation score
+  #we have to change column names so that it works inside the loop 
+  a<-a %>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a %>% filter(T>0) %>% mutate(score = M/T) 
+  a_3<-resize(a,3) #modify the ranges to get the 2 downstream bases 
+  seqinfo(a_3)<-Seqinfo(genome = "mm9")
+  a_3<-GenomicRanges::trim(a_3) #because we might get out of bounds
+  
+  sequence_a<-getSeq(genome,a_3) #get the sequence
+  rm(a_3) ; gc()
+  y<-as.data.frame(sequence_a)
+  rm(sequence_a) ; gc()
+  a$CGN_seq<-y$x #add column containing sequence info
+  
+  #remove ranges with 0 reads, and add column containing methylation score
+  #we have to change column names so that it works inside the loop 
+  #b<-a %>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  #b<- b %>% filter(T>0) %>% mutate(score = M/T)
+  
+  saveRDS(a, file = paste("../data/raw_data/CHH/", x ,sep=""))
+  
+})
+
+  #change back colnames to original
+# i have to do it in another lapply
+##a<-a %>%  as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand",paste(names(x),"_","T", sep=""),paste(names(x),"_","M", sep=""),"score", "CGN_seq")) %>% makeGRangesFromDataFrame(keep.extra.columns = TRUE)
+```
+
+
+
+```{r}
+#create a vector holding the names of all the sample names
+
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+genome<-BSgenome.Mmusculus.UCSC.mm9 #define reference genome. (to get downstream base)
+
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/raw_data/completely unprocessed/CHH/","merged", sample_names[i],".rds" ,sep=""))
+  
+  #get downstream nucleotide sequence
+  a_3<-resize(a,3) #modify the ranges to get the 2 downstream bases 
+  sequence_a<-getSeq(genome,a_3) #get the sequence
+  x<-as.data.frame(sequence_a)
+  a$CGN_seq<-x$x #add column containg sequence info
+  
+  
+  #remove ranges with 0 reads, and add column containing methylation score
+  #we have to change column names so that it works inside the loop 
+  b<-a %>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  b<- b %>% filter(T>0) %>% mutate(score = M/T)
+  
+  #change back colnames to original
+c<-b %>%  as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand",paste(sample_names[i],"_","T", sep=""),paste(sample_names[i],"_","M", sep=""), "CGN_seq")) %>% makeGRangesFromDataFrame(keep.extra.columns = TRUE)
+
+saveRDS(c, file = paste("../data/raw_data/CpG/", sample_names[i],"_mCpG.rds" ,sep=""))
+}
+```
+SNPs
+```{r}
+CG_noSNP<-readRDS("../data/data_from_backup/genome.CpG.woSNP.gr.RDS")
+#increase by 1 base, so that it can overlap with the C in the minus strand as well
+CG_noSNP_2<-resize(CG_noSNP,2)
+a
+subsetByOverlaps(a, CG_noSNP_2)
+b<-readRDS("../data/raw_data/CpG/GSM1382253_mCpG.rds")
+b
+subsetByOverlaps(b, CG_noSNP_2)
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+

@@ -1,0 +1,221 @@
+---
+title: "Figures"
+author: "Amalia"
+date: "2023-11-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#genome_wide
+Load the libraries
+```{r, echo=FALSE}
+library(GenomicRanges)
+library(BSgenome.Mmusculus.UCSC.mm9)
+library(tidyverse)
+library(plyranges)
+
+library(RColorBrewer)
+library(wesanderson)
+library(stringr)
+```
+
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1","DNMT3B1","WT","WT")
+
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/raw_data/CpG/", sample_names[i],"_mCpG.rds" ,sep=""))
+  a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>9 & a$T<101]
+  #a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  #a<- a[a$T>9 & a$T<101]
+    #a<-a %>% mutate(CHN_seq = case_when(
+    #endsWith(CGN_seq, "A") ~ "CHA",
+    #endsWith(CGN_seq, "G") ~ "CHG",
+    #endsWith(CGN_seq, "T") ~ "CHT",
+    #endsWith(CGN_seq, "C") ~ "CHC",
+    #))
+  plot<-a%>%as.data.frame() %>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+theme_classic() +scale_fill_manual(values = c("#4e79a7","#a83232" ,"#6f5090","#ffa64d"))
+  ggsave(paste0("../figures/Figures_for_report/genome-wide_CpG_average_/", sample_names[i], ".png"), plot = plot)
+  plot
+}
+
+```
+
+filtered CH
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1","DNMT3B1","WT","WT")
+
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/processed/CHH_mean/filtered_by_point8_WTmeth/", sample_names[i],".rds" ,sep=""))
+  #a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  #a<- a[a$T>9 & a$T<101]
+    a<-a %>% mutate(CHN_seq = case_when(
+    endsWith(CGN_seq, "A") ~ "CHA",
+    endsWith(CGN_seq, "G") ~ "CHG",
+    endsWith(CGN_seq, "T") ~ "CHT",
+    endsWith(CGN_seq, "C") ~ "CHC",
+    ))
+  plot<-a%>%as.data.frame() %>% ggplot(aes(x=CHN_seq, y= score, fill=CHN_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+theme_classic() +scale_fill_manual(values = c("#4e79a7","#a83232" ,"#6f5090","#ffa64d"))
+  ggsave(paste0("../figures/Figures_for_report/genome-wide_CpH_average_/filteredby80percentWT/", sample_names[i], ".png"), plot = plot)
+  plot
+}
+
+```
+non 0 chh
+```{r}
+for(i in 1:10){
+a<-readRDS(file = paste("../data/processed/CHH_mean/CHH_mean_removing methylation 0/", sample_names[i],".rds" ,sep=""))
+#  a$CHH_seq<- factor(a$CHH_seq, levels=c("CAA","CAG","CCA","CCG","CGA","CGG","CTA","CTG","CAT","CAC","CCT","CCC","CGT","CGC","CTT","CTC"))
+plot<-a%>%filter(!CHH_seq %in% c("CGA", "CGG","CGC","CGT")) %>% as.data.frame() %>% ggplot(aes(x=CHH_seq, y= mean, fill=CHH_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+theme_classic() +scale_fill_manual(values = c("#4e79a7","#a83232" ,"#6f5090","#ffa64d","#4e79a7","#a83232" ,"#6f5090","#ffa64d","#4e79a7","#a83232" ,"#6f5090","#ffa64d"))
+  ggsave(paste0("../figures/Figures_for_report/genome-wide_CpH_average_/removed0/", sample_names[i], ".png"), plot = plot)
+  plot
+}
+```
+non-0 CH
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+
+Total_chr  <-  c(paste("chr", 1:19, sep=''), 'chrX','chrY')
+
+
+#test<-data.frame() #empty dataframe to add to inside the loop
+
+
+#ggplot(k, aes(x=CGN_seq, y=value)) + geom_bar(stat="identity")
+
+#library(ggpubr) #for theme classic2
+#l<-ggplot(k, aes(x=CGN_seq, y=value)) + geom_bar(stat="identity") +theme_classic2()
+#ggsave("l.png",l)
+
+for(i in 1:10){
+  test<-data.frame() #empty dataframe to add to inside the loop
+  for(j in 1:21){
+    a<-readRDS(file = paste0("../data/raw_data/CHH/", sample_names[i],"_", Total_chr[j],".rds"))
+    a<- a[a$T>9 & a$T<101] #filter each file
+    a<- a %>% filter(score >0)
+    a<-a %>% plyranges::filter(CGN_seq!="CNN") #filter out locations where we dont hav ethe trinucleotide sequence
+    a<-a %>% plyranges::filter(!CGN_seq %in% c("CGA", "CGG","CGC","CGT"))
+    a<-a %>% mutate(CHN_seq = case_when(
+    endsWith(CGN_seq, "A") ~ "CHA",
+    endsWith(CGN_seq, "G") ~ "CHG",
+    endsWith(CGN_seq, "T") ~ "CHT",
+    endsWith(CGN_seq, "C") ~ "CHC",
+    ))
+    avg<- a %>% group_by(CGN_seq) %>% summarise(avg_meth=mean(score)) #get average of each CHH
+    num<- a %>% group_by(CGN_seq) %>% summarise(C_num=plyranges::n()) #get number of each CHH
+    df<-merge(avg,num, by="CGN_seq") 
+    df$times<-df$avg_meth*df$C_num #multiply 
+    df<-df%>% as_tibble() %>%  pivot_wider(names_from =  CGN_seq,values_from = c(avg_meth, C_num, times)) #wide format 
+    e<-data.frame(chr=Total_chr[j], df) #add chr info
+    test<-bind_rows(test,e) #merge every chromosome (it adds NA when a column is missing from one of the two)
+    test[is.na(test)] = 0 #replace NAs wth 0
+  }
+f<-test %>%
+            bind_rows(summarise(., across(where(is.numeric), sum),
+                                   across(where(is.character), ~'Total'))) #add a row which is the sum of all previous rows
+f1<- f %>% select("chr" | starts_with('C')) %>% dplyr::slice(dplyr::n()) #keep the number of Cs
+f2<- f %>% select("chr" | starts_with('times')) %>% dplyr::slice(dplyr::n()) #keep the avg*number
+cha<-f2[-1]/f1[-1] #divide the sum of avg*number by the total number 
+#this will give you the total average for the genome
+g<-cha %>% pivot_longer(cols = everything(), values_to = "mean") #convert back to long format
+k<-g %>% mutate(CHH_seq = str_split(name, '_',simplify=TRUE)[,2], .before = mean) %>% select(-name) #keep only tri seq
+saveRDS(k,file=paste0("../data/processed/CHH_mean/CHH_mean_removing methylation 0/byCHN/", sample_names[i], ".rds"))#save the table created for this sample
+}
+```
+
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1","DNMT3B1","WT","WT")
+
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/processed/CHH_mean/CHH_mean_removing methylation 0/byCHN/", sample_names[i],".rds" ,sep=""))
+  #a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  #a<- a[a$T>9 & a$T<101]
+
+  plot<-a%>%as.data.frame() %>% ggplot(aes(x=CHH_seq, y= mean, fill=CHH_seq))+geom_bar(stat = "identity")+ labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+theme_classic() +scale_fill_manual(values = c("#4e79a7","#a83232" ,"#6f5090","#ffa64d"))
+  ggsave(paste0("../figures/Figures_for_report/genome-wide_CpH_average_/removed0/byCHN/", sample_names[i], ".png"), plot = plot)
+  plot
+}
+```
+
+#previous
+```{r}
+for(i in 1:10){
+  test<-data.frame() #empty dataframe to add to inside the loop
+  for(j in 1:21){
+    a<-readRDS(file = paste0("../data/raw_data/CHH/", sample_names[i],"_", Total_chr[j],".rds"))
+    a<- a[a$T>9 & a$T<101] #filter each file
+    a<-a %>% plyranges::filter(CGN_seq!="CNN") #filter out locations where we dont hav ethe trinucleotide sequence
+    a<-a %>% plyranges::filter(!CGN_seq %in% c("CGA", "CGG","CGC","CGT"))
+    a<-a %>% mutate(CHN_seq = case_when(
+    endsWith(CGN_seq, "A") ~ "CHA",
+    endsWith(CGN_seq, "G") ~ "CHG",
+    endsWith(CGN_seq, "T") ~ "CHT",
+    endsWith(CGN_seq, "C") ~ "CHC",
+    ))
+    avg<- a %>% group_by(CHN_seq) %>% summarise(avg_meth=mean(score)) #get average of each CHH
+    num<- a %>% group_by(CHN_seq) %>% summarise(C_num=plyranges::n()) #get number of each CHH
+    df<-merge(avg,num, by="CHN_seq") 
+    df$times<-df$avg_meth*df$C_num #multiply 
+    df<-df%>% as_tibble() %>%  pivot_wider(names_from =  CHN_seq,values_from = c(avg_meth, C_num, times)) #wide format 
+    e<-data.frame(chr=Total_chr[j], df) #add chr info
+    test<-bind_rows(test,e) #merge every chromosome (it adds NA when a column is missing from one of the two)
+    test[is.na(test)] = 0 #replace NAs wth 0
+  }
+f<-test %>%
+            bind_rows(summarise(., across(where(is.numeric), sum),
+                                   across(where(is.character), ~'Total'))) #add a row which is the sum of all previous rows
+f1<- f %>% select("chr" | starts_with('C')) %>% dplyr::slice(n()) #keep the number of Cs
+f2<- f %>% select("chr" | starts_with('times')) %>% slice(n()) #keep the avg*number
+cha<-f2[-1]/f1[-1] #divide the sum of avg*number by the total number 
+#this will give you the total average for the genome
+g<-cha %>% pivot_longer(cols = everything(), values_to = "mean") #convert back to long format
+k<-g %>% mutate(CHH_seq = str_split(name, '_',simplify=TRUE)[,2], .before = mean) %>% select(-name) #keep only tri seq
+saveRDS(k,file=paste0("../data/processed/CHH_mean/CHH_mean_removing methylation 0/byCHN/", sample_names[i], ".rds"))#save the table created for this sample
+}
+
+```
+
+
+
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1","DNMT3B1","WT","WT")
+
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/processed/CHH_mean/byCHN/", sample_names[i],".rds" ,sep=""))
+  #a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  #a<- a[a$T>9 & a$T<101]
+
+  plot<-a%>%as.data.frame() %>% ggplot(aes(x=CHH_seq, y= mean, fill=CHH_seq))+geom_bar(stat = "identity")+ labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+theme_classic() +scale_fill_manual(values = c("#4e79a7","#a83232" ,"#6f5090","#ffa64d"))
+  ggsave(paste0("../figures/Figures_for_report/genome-wide_CpH_average_/byCHN/", sample_names[i], ".png"), plot = plot)
+  plot
+}
+```
+
+filtered CH
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1","DNMT3B1","WT","WT")
+
+for(i in 1:8){
+  a<-readRDS(file = paste("../data/processed/CHH_mean/filtered_by_point8_WTmeth/", sample_names[i],".rds" ,sep=""))
+  #a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>9 & a$T<101]
+  #  a<-a %>% mutate(CHN_seq = case_when(
+  #  endsWith(CGN_seq, "A") ~ "CHA",
+  #  endsWith(CGN_seq, "G") ~ "CHG",
+   # endsWith(CGN_seq, "T") ~ "CHT",
+  #  endsWith(CGN_seq, "C") ~ "CHC",
+   # ))
+  plot<-a %>% as.data.frame() %>% filter(CGN_seq%in% c("CAA","CAT","CAC","CAG"))%>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+theme_classic() +scale_fill_manual(values = c("#4e79a7","#a83232" ,"#6f5090","#ffa64d"))
+  ggsave(paste0("../figures/Figures_for_report/genome-wide_CpH_average_/filteredby80percentWT/onlyCA/", sample_names[i], ".png"), plot = plot)
+  plot
+}
+
+```

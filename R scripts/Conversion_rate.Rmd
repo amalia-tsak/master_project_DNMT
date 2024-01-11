@@ -1,0 +1,61 @@
+---
+title: "Conversion rate calculation"
+author: "Amalia"
+date: "2023-06-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load packages
+```{r}
+library(GenomicRanges)
+library(BSgenome.Mmusculus.UCSC.mm9)
+library(tidyverse)
+library(plyranges)
+```
+
+```{r}
+#create a vector holding the names of all the sample names
+
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+stats<-c("Min.","1st Qu.","Median","Mean","3rd Qu.","Max." )
+lambda_df<-data.frame(stats)
+T7_df<-data.frame(stats)
+for(i in 1:10){
+  lambda<-readRDS(file=paste0("../data/raw_data/completely unprocessed/aux(for conversion rate)/", sample_names[i],"_mCpG_auxLambda.rds"))
+  T7<-readRDS(file=paste0("../data/raw_data/completely unprocessed/aux(for conversion rate)/", sample_names[i],"_mCpG_auxT7.rds"))
+  
+  #calculate meth score
+  lambda<-lambda %>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  lambda<- lambda %>% filter(T>0) %>% mutate(score = M/T)
+  
+  T7<-T7 %>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  T7<- T7 %>% filter(T>0) %>% mutate(score = M/T)
+  
+  #filter for at least 10 reads
+  lambda<-lambda %>% filter(T>10) 
+  #lambda_scores<-summary(lambda$score)
+  lambda_scores<-data.frame(unclass(summary(lambda$score)),  # Convert summary to data frame
+                           check.names = FALSE)
+
+  lambda_df<-cbind(lambda_df,lambda_scores)
+  T7<-T7 %>% filter(T>10) 
+  print(summary(T7$score))
+  T7_scores<-data.frame(unclass(summary(T7$score)),  # Convert summary to data frame
+                           check.names = FALSE)
+
+  T7_df<-cbind(T7_df,T7_scores)
+}
+
+
+colnames(lambda_df)<-c("stats", "GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+
+colnames(T7_df)<-c("stats", "GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+
+lambda_df<-lambda_df %>% select(-c(stats))
+T7_df<-T7_df %>% select(-c(stats))
+```
+

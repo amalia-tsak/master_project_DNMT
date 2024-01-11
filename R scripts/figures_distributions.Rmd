@@ -1,0 +1,199 @@
+---
+title: "figures__distributions"
+author: "Amalia"
+date: "2023-11-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(ggplot2)
+library(ggdist)
+library(tidyverse)
+library(ggthemes)
+library(tidyverse)
+library(tidyquant)
+library(ggdist)
+
+```
+
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1","DNMT3B1","WT")
+
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/raw_data/CpG/", sample_names[i],"_mCpG.rds" ,sep=""))
+  a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>9 & a$T<101]
+  #a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  #a<- a[a$T>9 & a$T<101]
+    #a<-a %>% mutate(CHN_seq = case_when(
+    #endsWith(CGN_seq, "A") ~ "CHA",
+    #endsWith(CGN_seq, "G") ~ "CHG",
+    #endsWith(CGN_seq, "T") ~ "CHT",
+    #endsWith(CGN_seq, "C") ~ "CHC",
+    #))
+   plot<-a %>% 
+  as.data.frame() %>% 
+  filter(score>0) %>% 
+  ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq)) +
+  # add half-violin from {ggdist} package
+  stat_halfeye(
+    # adjust bandwidth
+    adjust = 0.5,
+    # move to the right
+    justification = -0.2,
+    # remove the slub interval
+    .width = 0,
+    point_colour = NA
+  ) +
+  geom_boxplot(
+    width = 0.12,
+    # removing outliers
+    outlier.color = NA,
+    alpha = 1
+  ) +labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+
+    theme_classic() +scale_fill_manual(values = c("#4e79a7","#a83232" ,"#6f5090","#ffa64d"))
+  
+  ggsave(paste0("../figures/Figures_for_report/genome-wide_CpG_average_distributions/", sample_names[i], ".png"), plot = plot)
+  plot
+}
+
+```
+
+for chh filter by wt meth
+```{r}
+for(i in 1:8){
+   a<-readRDS(file = paste("../data/processed/CHH_mean/filtered_by_point8_WTmeth/", sample_names[i],".rds" ,sep=""))
+  #a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>9 & a$T<101]
+    a<-a %>% mutate(CHN_seq = case_when(
+    endsWith(CGN_seq, "A") ~ "CHA",
+    endsWith(CGN_seq, "G") ~ "CHG",
+    endsWith(CGN_seq, "T") ~ "CHT",
+    endsWith(CGN_seq, "C") ~ "CHC",
+    ))
+   plot<-a %>% 
+  as.data.frame() %>% 
+  filter(score>0) %>% 
+  ggplot(aes(x=CHN_seq, y= score, fill=CHN_seq)) +
+  # add half-violin from {ggdist} package
+  stat_halfeye(
+    # adjust bandwidth
+    adjust = 0.5,
+    # move to the right
+    justification = -0.2,
+    # remove the slub interval
+    .width = 0,
+    point_colour = NA
+  ) +
+  geom_boxplot(
+    width = 0.12,
+    # removing outliers
+    outlier.color = NA,
+    alpha = 1
+  ) +labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+
+    theme_classic() +scale_fill_manual(values = c("#4e79a7","#a83232" ,"#6f5090","#ffa64d"))
+  
+  ggsave(paste0("../figures/Figures_for_report/genome-wide_CpH_average_distributions/", sample_names[i], ".png"), plot = plot)
+  plot
+}
+#for WT
+Total_chr  <-  c(paste("chr", 1:19, sep=''), 'chrX','chrY')
+for(i in 10:10){
+  test<-GRanges()
+   for(j in 1:21){
+    a<-readRDS(file = paste0("../data/raw_data/CHH/", sample_names[i],"_", Total_chr[j],".rds"))
+    a<- a[a$T>9 & a$T<101] #filter each file
+    a<- a %>% filter(score >0.8)
+    a<-a %>% plyranges::filter(CGN_seq!="CNN") #filter out locations where we dont hav ethe trinucleotide sequence
+    #we should now have ranges where CHH is above 0.8 methylated
+    test<-bind_ranges(test,a)
+  }
+    test<-test %>% mutate(CHN_seq = case_when(
+    endsWith(CGN_seq, "A") ~ "CHA",
+    endsWith(CGN_seq, "G") ~ "CHG",
+    endsWith(CGN_seq, "T") ~ "CHT",
+    endsWith(CGN_seq, "C") ~ "CHC",
+    ))
+   plot<-test %>% 
+  as.data.frame() %>% 
+  filter(score>0) %>% 
+  ggplot(aes(x=CHN_seq, y= score, fill=CHN_seq)) +
+  # add half-violin from {ggdist} package
+  stat_halfeye(
+    # adjust bandwidth
+    adjust = 0.5,
+    # move to the right
+    justification = -0.2,
+    # remove the slub interval
+    .width = 0,
+    point_colour = NA
+  ) +
+  geom_boxplot(
+    width = 0.12,
+    # removing outliers
+    outlier.color = NA,
+    alpha = 1
+  ) +labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+
+    theme_classic() +scale_fill_manual(values = c("#4e79a7","#a83232" ,"#6f5090","#ffa64d"))
+  
+  ggsave(paste0("../figures/Figures_for_report/genome-wide_CpH_average_distributions/", sample_names[i], ".png"), plot = plot)
+  plot
+}
+```
+
+
+
+
+
+now distribution of bins
+```{r}
+
+```
+
+```{r}
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/raw_data/CHH/", sample_names[i],"_chr1.rds" ,sep=""))
+  a<- a[a$T>9 & a$T<101]
+  a %>% filter(score>0)
+  a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "score", "CGN_seq")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  #a<- a[a$T>9 & a$T<101]
+  #a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  #a<- a[a$T>9 & a$T<101]
+    #a<-a %>% mutate(CHN_seq = case_when(
+    #endsWith(CGN_seq, "A") ~ "CHA",
+    #endsWith(CGN_seq, "G") ~ "CHG",
+    #endsWith(CGN_seq, "T") ~ "CHT",
+    #endsWith(CGN_seq, "C") ~ "CHC",
+    #))
+   plot<-a %>% 
+  as.data.frame() %>% 
+  filter(score>0) %>% 
+  ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq)) +
+  # add half-violin from {ggdist} package
+  stat_halfeye(
+    # adjust bandwidth
+    adjust = 0.5,
+    # move to the right
+    justification = -0.2,
+    # remove the slub interval
+    .width = 0,
+    point_colour = NA
+  ) +
+  geom_boxplot(
+    width = 0.12,
+    # removing outliers
+    outlier.color = NA,
+    alpha = 1
+  ) +labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+
+    theme_classic() +scale_fill_manual(values = c("#4e79a7","#a83232" ,"#6f5090","#ffa64d"))
+  
+  ggsave(paste0("../figures/Figures_for_report/genome-wide_CpG_average_distributions/", sample_names[i], ".png"), plot = plot)
+  plot
+}
+
+```
+

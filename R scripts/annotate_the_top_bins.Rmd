@@ -1,0 +1,740 @@
+---
+title: "annotate_the_top_bins"
+author: "Amalia"
+date: "2023-10-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#see how to annotate the bins you got
+#We are going to annotate the top/bottom bins
+We will UCSC annotation, and a waterfall concept, of the following order:
+Promoters, Exons, Repetitive Elements, Introns, Rest of the genome.
+Load packages
+```{r}
+library(GenomicRanges)
+library(tidyverse)
+#library (purrr)
+library(plyranges)
+#library(rlist)
+#library(ggvenn)
+#library(UpSetR)
+library(viridis)
+```
+#option one is using genomc annotations from txdb
+loading packages
+```{r}
+library(TxDb.Mmusculus.UCSC.mm9.knownGene)
+```
+
+```{r}
+txdb<- TxDb.Mmusculus.UCSC.mm9.knownGene
+#methods(class=class(txdb)
+```
+
+```{r}
+#example
+readRDS("../data/processed/bins/CpGs/1kb/bottom1%/GSM1382253.rds")
+```
+We are going to create a genomic ranges object for each one, and we are going to annotate it based on overlaps.
+But before doing that we need to "clean" the genomic ranges we are going to use for the annotation.
+We want to use waterfall principle, and delete from the second annotation category the ranges that were already in the first category.
+So when we annotate with exons we have to first delete the ranges that intersect with promoters (keeping only the ones that dont with setdiff)
+
+##additionaly, (before deleting teh intersections) we want to (for this bulk type of annotation) to disjoin the ranges, to ensure that the length of overlap is nto artifitially inflated 
+(we dont want to have two promoters for example overlapping with our tile in the same 50bp and our overlap to be 100 when in reality it is 50)
+
+if we want to see which genes overlap later we have to change this
+so we have to remove all the disjoins
+```{r}
+txdb<- TxDb.Mmusculus.UCSC.mm9.knownGene
+#methods(class=class(txdb))
+#I will keep the promoters of genes and not all transcripts
+promoters<-promoters(genes(txdb, single.strand.genes.only=FALSE)) #keeps geens that have exons in both strands 
+promoters<-unlist(promoters)
+promoters<-disjoin_ranges(promoters)
+introns<-intronsByTranscript(txdb) #theloun unlist
+introns<-unlist(introns)
+introns<-disjoin_ranges(introns)
+exons<-exonsBy(txdb)
+exons<-unlist(exons)
+exons<-disjoin_ranges(exons)
+exons
+introns
+repetitive<-readRDS("../data/repeat.instance.gr.rds") #tuncay gave me this one
+disjoin_ranges(repetitive)
+
+#1 promoters (they dont need to change cause they are the first)
+promoter_ranges<-promoters
+#2 exons (the common regions with promoters)
+#setdiff removes the regions that are overlapping with a second GRanges obj
+#i ignore strand cause in my genomic range si dont have strand info
+#This might change in the next analysis
+exon_ranges<-GenomicRanges::setdiff(exons, promoter_ranges, ignore.strand = TRUE)
+#3 Repetitive elememts (the common regions with proms and exons must be removed)
+repetitive_minus_proms<-GenomicRanges::setdiff(repetitive, promoter_ranges, ignore.strand= TRUE)
+RE_ranges<-GenomicRanges::setdiff(repetitive_minus_proms, exon_ranges, ignore.strand =TRUE)
+#4 introns (the common from proms, exons and repetitive must be removed)
+introns_minus_prom<-GenomicRanges::setdiff(introns, promoter_ranges, ignore.strand = TRUE)
+intr_min_prom_ex<-GenomicRanges::setdiff(introns_minus_prom, exon_ranges, ignore.strand = TRUE)
+intron_ranges<-GenomicRanges::setdiff(intr_min_prom_ex, RE_ranges, ignore.strand = TRUE)
+#5 everything that did not overlap will be REST
+#just sanity check
+sum(width(introns))
+sum(width(introns_minus_prom))
+sum(width(intr_min_prom_ex))
+sum(width(intron_ranges))
+```
+
+now finding the Annotation, the number of bases that overlap with each
+
+find overlaps,find the length of overlap (width) using pintersect, 
+save the queryHits and merge with the result of pintersect (the queryHit is the rownumber of the granges that we will use to find teh bin)
+collapse the df, adding the overlaps that are for the same row
+need to also add rows for the data that did not overlap (so add 0)
+
+##make it for all samples
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786_as3A","GSM748787_as3A","GSM748786_as3B","GSM748787_as3B") #modified
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1","WT","WT", "WT","WT")
+```
+
+```{r}
+tobind<-data.frame() #used to rbind all dfs together
+for(i in 1:10){
+a<-readRDS(file = paste("../data/processed/bins/CpGs/1kb/top1%/", sample_names[i],".rds",sep=""))
+a<-a %>% makeGRangesFromDataFrame(keep.extra.columns = T)  #convert to granges
+##PROMOTERS 1 
+
+#1 overlaps
+hits<-findOverlaps(a,promoter_ranges, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],promoter_ranges[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_promoter_bina<-data.frame("row.number"=queryHits(hits),"promoter_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_promoter_bina<-length_promoter_bina %>% group_by(row.number) %>% summarise(across(promoter_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_promoter_bina<-length_promoter_bina %>% mutate(promoter_overlap=replace(promoter_overlap, promoter_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_promoter_bina<-left_join(to_merge,length_promoter_bina, by="row.number")
+#sanity check
+check_full_length_promoter_bina<-full_join(to_merge,length_promoter_bina, by="row.number")
+
+##EXONS 2
+#1 overlaps
+hits<-findOverlaps(a,exon_ranges, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],exon_ranges[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_exons_bina<-data.frame("row.number"=queryHits(hits),"exon_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_exons_bina<-length_exons_bina %>% group_by(row.number) %>% summarise(across(exon_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_exons_bina<-length_exons_bina %>% mutate(exon_overlap=replace(exon_overlap, exon_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_exons_bina<-left_join(to_merge,length_exons_bina, by="row.number")
+
+##REPETITIVE 3
+#1 overlaps
+hits<-findOverlaps(a,RE_ranges, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],RE_ranges[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_re_bina<-data.frame("row.number"=queryHits(hits),"re_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_re_bina<-length_re_bina %>% group_by(row.number) %>% summarise(across(re_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_re_bina<-length_re_bina %>% mutate(re_overlap=replace(re_overlap, re_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_re_bina<-left_join(to_merge,length_re_bina, by="row.number")
+
+##INTRONS 4
+#1 overlaps
+hits<-findOverlaps(a,intron_ranges, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],intron_ranges[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_introns_bina<-data.frame("row.number"=queryHits(hits),"intron_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_introns_bina<-length_introns_bina %>% group_by(row.number) %>% summarise(across(intron_overlap, sum))
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_introns_bina<-length_introns_bina %>% mutate(intron_overlap=replace(intron_overlap, intron_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_introns_bina<-left_join(to_merge,length_introns_bina, by="row.number")
+
+#now merge everything and what is left is rest of genome
+bina_overlaps<-left_join(full_length_promoter_bina,full_length_exons_bina) %>% left_join(.,full_length_re_bina) %>% left_join(.,full_length_introns_bina) %>% rowwise() %>% mutate(sum_overlap= sum(c(promoter_overlap ,exon_overlap , re_overlap,intron_overlap), na.rm=TRUE )) %>% mutate(Rest_overlap= 1000-sum_overlap) %>%dplyr::select(-c(sum_overlap, row.number)) %>% replace(is.na(.), 0)
+#bina_overlaps
+
+
+#pivot to longer for plot
+bina_long<-bina_overlaps %>% pivot_longer(!bin, names_to = "region", values_to = "range") %>% mutate("sample_name" = print(sample_names[i]))
+
+tobind<-rbind(tobind,bina_long)
+#how to merge the two
+#plot for two
+#bina_long %>% ggplot(aes(y=region, fill=range)) +geom_bar(position= "fill")
+}
+ 
+
+#bina_long_1<-bina_long
+#k<-rbind(bina_long_1,bina_long) #rbind
+#k %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") +scale_y_continuous(label = scales::percent)
+
+#k %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") +scale_y_continuous(labels = scales::label_percent(accuracy = 1))
+
+#this
+#k %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#geom_text(aes(label = scales::percent(region)),
+#position="stack",vjust=+2.1,col="firebrick",size=3)
+#bina_long
+#bina_long_1
+```
+plot
+```{r}
+tobind %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") +theme_classic()
+```
+
+
+
+```{r}
+tobind %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#convert sample name to factor to keep specific order
+#test
+tobind2<-tobind
+tobind2$sample_name<- factor(tobind2$sample_name, levels=c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786_as3A","GSM748786_as3B","GSM748787_as3A","GSM748787_as3B"))
+
+plot<-tobind2 %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Genomic Annotation of Top 1% ranked 1kb tiles") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d()
+ggsave("../figures/genomic_Annotation_of_bins/1kb_windows/unstranded_bins/Top1_percent.png", plot = plot)
+  plot
+  
+  
+
+```
+
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786_as3A","GSM748787_as3A","GSM748786_as3B","GSM748787_as3B") #modified
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1","WT","WT", "WT","WT")
+```
+
+Exactly the same for the bottom 1 and top bottom 10%
+
+```{r}
+tobind<-data.frame() #used to rbind all dfs together
+for(i in 1:10){
+a<-readRDS(file = paste("../data/processed/bins/CpGs/1kb/bottom10%/", sample_names[i],".rds",sep=""))
+a<-a %>% makeGRangesFromDataFrame(keep.extra.columns = T)  #convert to granges
+##PROMOTERS 1 
+
+#1 overlaps
+hits<-findOverlaps(a,promoter_ranges, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],promoter_ranges[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_promoter_bina<-data.frame("row.number"=queryHits(hits),"promoter_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_promoter_bina<-length_promoter_bina %>% group_by(row.number) %>% summarise(across(promoter_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_promoter_bina<-length_promoter_bina %>% mutate(promoter_overlap=replace(promoter_overlap, promoter_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_promoter_bina<-left_join(to_merge,length_promoter_bina, by="row.number")
+#sanity check
+check_full_length_promoter_bina<-full_join(to_merge,length_promoter_bina, by="row.number")
+
+##EXONS 2
+#1 overlaps
+hits<-findOverlaps(a,exon_ranges, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],exon_ranges[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_exons_bina<-data.frame("row.number"=queryHits(hits),"exon_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_exons_bina<-length_exons_bina %>% group_by(row.number) %>% summarise(across(exon_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_exons_bina<-length_exons_bina %>% mutate(exon_overlap=replace(exon_overlap, exon_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_exons_bina<-left_join(to_merge,length_exons_bina, by="row.number")
+
+##REPETITIVE 3
+#1 overlaps
+hits<-findOverlaps(a,RE_ranges, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],RE_ranges[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_re_bina<-data.frame("row.number"=queryHits(hits),"re_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_re_bina<-length_re_bina %>% group_by(row.number) %>% summarise(across(re_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_re_bina<-length_re_bina %>% mutate(re_overlap=replace(re_overlap, re_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_re_bina<-left_join(to_merge,length_re_bina, by="row.number")
+
+##INTRONS 4
+#1 overlaps
+hits<-findOverlaps(a,intron_ranges, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],intron_ranges[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_introns_bina<-data.frame("row.number"=queryHits(hits),"intron_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_introns_bina<-length_introns_bina %>% group_by(row.number) %>% summarise(across(intron_overlap, sum))
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_introns_bina<-length_introns_bina %>% mutate(intron_overlap=replace(intron_overlap, intron_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_introns_bina<-left_join(to_merge,length_introns_bina, by="row.number")
+
+#now merge everything and what is left is rest of genome
+bina_overlaps<-left_join(full_length_promoter_bina,full_length_exons_bina) %>% left_join(.,full_length_re_bina) %>% left_join(.,full_length_introns_bina) %>% rowwise() %>% mutate(sum_overlap= sum(c(promoter_overlap ,exon_overlap , re_overlap,intron_overlap), na.rm=TRUE )) %>% mutate(Rest_overlap= 1000-sum_overlap) %>%dplyr::select(-c(sum_overlap, row.number)) %>% replace(is.na(.), 0)
+#bina_overlaps
+
+
+#pivot to longer for plot
+bina_long<-bina_overlaps %>% pivot_longer(!bin, names_to = "region", values_to = "range") %>% mutate("sample_name" = print(sample_names[i]))
+
+tobind<-rbind(tobind,bina_long)
+#how to merge the two
+#plot for two
+#bina_long %>% ggplot(aes(y=region, fill=range)) +geom_bar(position= "fill")
+}
+ 
+
+#bina_long_1<-bina_long
+#k<-rbind(bina_long_1,bina_long) #rbind
+#k %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") +scale_y_continuous(label = scales::percent)
+
+#k %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") +scale_y_continuous(labels = scales::label_percent(accuracy = 1))
+
+#this
+#k %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#geom_text(aes(label = scales::percent(region)),
+#position="stack",vjust=+2.1,col="firebrick",size=3)
+#bina_long
+#bina_long_1
+```
+plot
+```{r}
+tobind %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#convert sample name to factor to keep specific order
+#test
+tobind2<-tobind
+tobind2$sample_name<- factor(tobind2$sample_name, levels=c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786_as3A","GSM748786_as3B","GSM748787_as3A","GSM748787_as3B"))
+
+plot<-tobind2 %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Genomic Annotation of Bottom 10% ranked 1kb tiles") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d()
+ggsave("../figures/genomic_Annotation_of_bins/1kb_windows/unstranded_bins/Bottom10_percent.png", plot = plot)
+  plot
+  
+  
+
+```
+
+NEW IDEA PLOT WITH THE ANNOTATION OF EVERY BIN AS BACKROUND
+DO IT FIRST FOR THE STRANDED BINS
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748") #modified
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1")
+tobind<-data.frame() #used to rbind all dfs together
+for(i in 1:6){
+a<-readRDS(file = paste("../data/processed/bins_with_strand_information/CpGs/1kb/top1%/", sample_names[i],".rds",sep=""))
+a<-a %>% makeGRangesFromDataFrame(keep.extra.columns = T)  #convert to granges
+##PROMOTERS 1 
+
+#1 overlaps
+hits<-findOverlaps(a,promoter_ranges, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],promoter_ranges[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_promoter_bina<-data.frame("row.number"=queryHits(hits),"promoter_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_promoter_bina<-length_promoter_bina %>% group_by(row.number) %>% summarise(across(promoter_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_promoter_bina<-length_promoter_bina %>% mutate(promoter_overlap=replace(promoter_overlap, promoter_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_promoter_bina<-left_join(to_merge,length_promoter_bina, by="row.number")
+#sanity check
+check_full_length_promoter_bina<-full_join(to_merge,length_promoter_bina, by="row.number")
+
+##EXONS 2
+#1 overlaps
+hits<-findOverlaps(a,exon_ranges, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],exon_ranges[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_exons_bina<-data.frame("row.number"=queryHits(hits),"exon_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_exons_bina<-length_exons_bina %>% group_by(row.number) %>% summarise(across(exon_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_exons_bina<-length_exons_bina %>% mutate(exon_overlap=replace(exon_overlap, exon_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_exons_bina<-left_join(to_merge,length_exons_bina, by="row.number")
+
+##REPETITIVE 3
+#1 overlaps
+hits<-findOverlaps(a,RE_ranges, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],RE_ranges[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_re_bina<-data.frame("row.number"=queryHits(hits),"re_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_re_bina<-length_re_bina %>% group_by(row.number) %>% summarise(across(re_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_re_bina<-length_re_bina %>% mutate(re_overlap=replace(re_overlap, re_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_re_bina<-left_join(to_merge,length_re_bina, by="row.number")
+
+##INTRONS 4
+#1 overlaps
+hits<-findOverlaps(a,intron_ranges, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],intron_ranges[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_introns_bina<-data.frame("row.number"=queryHits(hits),"intron_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_introns_bina<-length_introns_bina %>% group_by(row.number) %>% summarise(across(intron_overlap, sum))
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_introns_bina<-length_introns_bina %>% mutate(intron_overlap=replace(intron_overlap, intron_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_introns_bina<-left_join(to_merge,length_introns_bina, by="row.number")
+
+#now merge everything and what is left is rest of genome
+bina_overlaps<-left_join(full_length_promoter_bina,full_length_exons_bina) %>% left_join(.,full_length_re_bina) %>% left_join(.,full_length_introns_bina) %>% rowwise() %>% mutate(sum_overlap= sum(c(promoter_overlap ,exon_overlap , re_overlap,intron_overlap), na.rm=TRUE )) %>% mutate(Rest_overlap= 1000-sum_overlap) %>%dplyr::select(-c(sum_overlap, row.number)) %>% replace(is.na(.), 0)
+#bina_overlaps
+
+
+#pivot to longer for plot
+bina_long<-bina_overlaps %>% pivot_longer(!bin, names_to = "region", values_to = "range") %>% mutate("sample_name" = print(sample_names[i]))
+
+tobind<-rbind(tobind,bina_long)
+#how to merge the two
+#plot for two
+#bina_long %>% ggplot(aes(y=region, fill=range)) +geom_bar(position= "fill")
+}
+ 
+```
+plot
+```{r}
+tobind %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#convert sample name to factor to keep specific order
+#test
+tobind2<-tobind
+tobind2$sample_name<- factor(tobind2$sample_name, levels=c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786_as3A","GSM748786_as3B","GSM748787_as3A","GSM748787_as3B"))
+
+plot<-tobind2 %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Genomic Annotation of Top 1% ranked 1kb tiles") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d()
+ggsave("../figures/genomic_Annotation_of_bins/1kb_windows/stranded_bins/top1_percent.png", plot = plot)
+  plot
+```
+
+annotate all the bins
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748") #modified
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1")
+tobind_all<-data.frame() #used to rbind all dfs together
+for(i in 1:6){
+a<-readRDS(file = paste("../data/processed/bins_with_strand_information/CpGs/1kb/", sample_names[i],".rds",sep=""))
+a<-a %>% makeGRangesFromDataFrame(keep.extra.columns = T)  #convert to granges
+a<-a %>% filter(CG_num>4)
+a<-a %>% filter(!is.na(Purine_num) & !is.na(Pyrimidine_num)) #have at least one from both
+a<- a %>% filter(Purine_num>1 & Pyrimidine_num>1)
+##PROMOTERS 1 
+
+#1 overlaps
+hits<-findOverlaps(a,promoter_ranges, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],promoter_ranges[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_promoter_bina<-data.frame("row.number"=queryHits(hits),"promoter_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_promoter_bina<-length_promoter_bina %>% group_by(row.number) %>% summarise(across(promoter_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_promoter_bina<-length_promoter_bina %>% mutate(promoter_overlap=replace(promoter_overlap, promoter_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_promoter_bina<-left_join(to_merge,length_promoter_bina, by="row.number")
+#sanity check
+check_full_length_promoter_bina<-full_join(to_merge,length_promoter_bina, by="row.number")
+
+##EXONS 2
+#1 overlaps
+hits<-findOverlaps(a,exon_ranges, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],exon_ranges[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_exons_bina<-data.frame("row.number"=queryHits(hits),"exon_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_exons_bina<-length_exons_bina %>% group_by(row.number) %>% summarise(across(exon_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_exons_bina<-length_exons_bina %>% mutate(exon_overlap=replace(exon_overlap, exon_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_exons_bina<-left_join(to_merge,length_exons_bina, by="row.number")
+
+##REPETITIVE 3
+#1 overlaps
+hits<-findOverlaps(a,RE_ranges, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],RE_ranges[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_re_bina<-data.frame("row.number"=queryHits(hits),"re_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_re_bina<-length_re_bina %>% group_by(row.number) %>% summarise(across(re_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_re_bina<-length_re_bina %>% mutate(re_overlap=replace(re_overlap, re_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_re_bina<-left_join(to_merge,length_re_bina, by="row.number")
+
+##INTRONS 4
+#1 overlaps
+hits<-findOverlaps(a,intron_ranges, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],intron_ranges[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_introns_bina<-data.frame("row.number"=queryHits(hits),"intron_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_introns_bina<-length_introns_bina %>% group_by(row.number) %>% summarise(across(intron_overlap, sum))
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_introns_bina<-length_introns_bina %>% mutate(intron_overlap=replace(intron_overlap, intron_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_introns_bina<-left_join(to_merge,length_introns_bina, by="row.number")
+
+#now merge everything and what is left is rest of genome
+bina_overlaps<-left_join(full_length_promoter_bina,full_length_exons_bina) %>% left_join(.,full_length_re_bina) %>% left_join(.,full_length_introns_bina) %>% rowwise() %>% mutate(sum_overlap= sum(c(promoter_overlap ,exon_overlap , re_overlap,intron_overlap), na.rm=TRUE )) %>% mutate(Rest_overlap= 1000-sum_overlap) %>%dplyr::select(-c(sum_overlap, row.number)) %>% replace(is.na(.), 0)
+#bina_overlaps
+
+
+#pivot to longer for plot
+bina_long<-bina_overlaps %>% pivot_longer(!bin, names_to = "region", values_to = "range") %>% mutate("sample_name" = print(sample_names[i]))
+
+tobind_all<-rbind(tobind_all,bina_long)
+#how to merge the two
+#plot for two
+#bina_long %>% ggplot(aes(y=region, fill=range)) +geom_bar(position= "fill")
+saveRDS(tobind_all,file=paste0("../data/processed/bins_with_strand_information/CpGs/1kb/Annotated Bins_txdb/", "a_and_bfull.rds"))
+}
+```
+plot
+```{r}
+tobind_all<-readRDS("../data/processed/bins_with_strand_information/CpGs/1kb/Annotated Bins_txdb/a_and_bfull.rds")
+tobind_all %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#convert sample name to factor to keep specific order
+#test
+tobind2<-tobind_all
+tobind2$sample_name<- factor(tobind2$sample_name, levels=c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786_as3A","GSM748786_as3B","GSM748787_as3A","GSM748787_as3B"))
+
+plot<-tobind2 %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Genomic Annotation of Full  1kb tiles") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d()
+ggsave("../figures/genomic_Annotation_of_bins/1kb_windows/stranded_bins/ALL.png", plot = plot)
+  plot
+```
+
+plot
+```{r}
+tobind_all<-readRDS("../data/processed/bins_with_strand_information/CpGs/1kb/Annotated Bins_txdb/a_and_bfull.rds")
+tobind_all %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#convert sample name to factor to keep specific order
+#test
+tobind2<-tobind_all
+tobind2$sample_name<- factor(tobind2$sample_name, levels=c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786_as3A","GSM748786_as3B","GSM748787_as3A","GSM748787_as3B"))
+
+plot<-tobind2 %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Genomic Annotation of Full  1kb tiles") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d()
+ggsave("../figures/genomic_Annotation_of_bins/1kb_windows/stranded_bins/ALL.png", plot = plot)
+  plot
+```
+top 10 of stranded 
+
+
+
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748") #modified
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1")
+tobind<-data.frame() #used to rbind all dfs together
+for(i in 1:6){
+a<-readRDS(file = paste("../data/processed/bins_with_strand_information/CpGs/1kb/bottom1%/", sample_names[i],".rds",sep=""))
+a<-a %>% makeGRangesFromDataFrame(keep.extra.columns = T)  #convert to granges
+##PROMOTERS 1 
+
+#1 overlaps
+hits<-findOverlaps(a,promoter_ranges, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],promoter_ranges[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_promoter_bina<-data.frame("row.number"=queryHits(hits),"promoter_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_promoter_bina<-length_promoter_bina %>% group_by(row.number) %>% summarise(across(promoter_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_promoter_bina<-length_promoter_bina %>% mutate(promoter_overlap=replace(promoter_overlap, promoter_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_promoter_bina<-left_join(to_merge,length_promoter_bina, by="row.number")
+#sanity check
+check_full_length_promoter_bina<-full_join(to_merge,length_promoter_bina, by="row.number")
+
+##EXONS 2
+#1 overlaps
+hits<-findOverlaps(a,exon_ranges, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],exon_ranges[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_exons_bina<-data.frame("row.number"=queryHits(hits),"exon_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_exons_bina<-length_exons_bina %>% group_by(row.number) %>% summarise(across(exon_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_exons_bina<-length_exons_bina %>% mutate(exon_overlap=replace(exon_overlap, exon_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_exons_bina<-left_join(to_merge,length_exons_bina, by="row.number")
+
+##REPETITIVE 3
+#1 overlaps
+hits<-findOverlaps(a,RE_ranges, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],RE_ranges[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_re_bina<-data.frame("row.number"=queryHits(hits),"re_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_re_bina<-length_re_bina %>% group_by(row.number) %>% summarise(across(re_overlap, sum))
+
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_re_bina<-length_re_bina %>% mutate(re_overlap=replace(re_overlap, re_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_re_bina<-left_join(to_merge,length_re_bina, by="row.number")
+
+##INTRONS 4
+#1 overlaps
+hits<-findOverlaps(a,intron_ranges, ignore.strand=TRUE)
+#2 width of overlap
+b<-width(pintersect(a[queryHits(hits)],intron_ranges[subjectHits(hits)], ignore.strand=TRUE))
+#3 create the df having id and length
+length_introns_bina<-data.frame("row.number"=queryHits(hits),"intron_overlap"=b) 
+#4 add the different overlaps for the same bin because many elements can overlap with the same bin
+length_introns_bina<-length_introns_bina %>% group_by(row.number) %>% summarise(across(intron_overlap, sum))
+#but we have to put a limit on the length of overlap (we can have a maximum of 1kb overlapping)
+length_introns_bina<-length_introns_bina %>% mutate(intron_overlap=replace(intron_overlap, intron_overlap>1000, 1000))
+
+#5 have to merge with original df but wont do it now cause there are too many columns and i want to see what im doing 
+
+to_merge<-as.data.frame(a$bin)%>% dplyr::rename("bin" = "a$bin") %>% mutate(row.number=row_number())
+
+full_length_introns_bina<-left_join(to_merge,length_introns_bina, by="row.number")
+
+#now merge everything and what is left is rest of genome
+bina_overlaps<-left_join(full_length_promoter_bina,full_length_exons_bina) %>% left_join(.,full_length_re_bina) %>% left_join(.,full_length_introns_bina) %>% rowwise() %>% mutate(sum_overlap= sum(c(promoter_overlap ,exon_overlap , re_overlap,intron_overlap), na.rm=TRUE )) %>% mutate(Rest_overlap= 1000-sum_overlap) %>%dplyr::select(-c(sum_overlap, row.number)) %>% replace(is.na(.), 0)
+#bina_overlaps
+
+
+#pivot to longer for plot
+bina_long<-bina_overlaps %>% pivot_longer(!bin, names_to = "region", values_to = "range") %>% mutate("sample_name" = print(sample_names[i]))
+
+tobind<-rbind(tobind,bina_long)
+#how to merge the two
+#plot for two
+#bina_long %>% ggplot(aes(y=region, fill=range)) +geom_bar(position= "fill")
+}
+ 
+```
+plot
+```{r}
+tobind %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+#convert sample name to factor to keep specific order
+#test
+tobind2<-tobind
+tobind2$sample_name<- factor(tobind2$sample_name, levels=c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786_as3A","GSM748786_as3B","GSM748787_as3A","GSM748787_as3B"))
+
+plot<-tobind2 %>% ggplot(aes(x=sample_name, y=range, fill=region)) +geom_bar(stat="summary") + labs(x="", y="", fill="", title = "Genomic Annotation of Bottom 1% ranked 1kb tiles") +theme_classic()+theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7)) + scale_fill_viridis_d()
+ggsave("../figures/genomic_Annotation_of_bins/1kb_windows/stranded_bins/bottom1_percent.png", plot = plot)
+  plot
+```

@@ -1,0 +1,193 @@
+---
+title: "Initial processing of raw data"
+author: "Amalia"
+date: "2023-06-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# This script is used to modify the GRanges holding the methylation we created using QuasR
+We are going to merge non-CpG methylation GRanges, since they are split in chromosomes.(done)
+We will calculate the percentage of methylation for all GRanges, and will add the downstream base. Additionally we are going to remove regions that fall in unidentified parts of the genome (and remove the GpGs that contain zero reads). 
+
+(this script was used as a playground, look at "First_processing_of_CpG.Rmd" )
+Load the libraries
+```{r}
+library(GenomicRanges)
+library(BSgenome.Mmusculus.UCSC.mm9)
+library(ggplot2)
+library(tidyverse)
+```
+
+```{r}
+#create a vector holding the names of all the sample names
+
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+Total_chr  <-  c(paste("chr", 1:22, sep=''), 'chrX','chrY')
+genome<-BSgenome.Mmusculus.UCSC.mm9
+
+gr_plots<- list()
+for(i in 1:10){
+  a<-readRDS(file = paste("../data/raw_data/completely unprocessed/CpG/", sample_names[i],"_add_mCpG.rds" ,sep=""))
+  a_clean<- a[seqnames(a)%in% Total_chr]
+  
+  #get seq
+  a_clean_6<-resize(a_clean,3)
+  sequence_a<-getSeq(genome,a_clean_6)
+  x<-as.data.frame(sequence_a)
+  a_clean$CGN_seq<-x$x
+  name_T<-paste(sample_names[i],"_T",sep="")
+  #clean 
+  b<-a_clean %>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  b$score<-b$M/b$T
+  
+  #  name_T<-paste(sample_names[i],"_T",sep="")
+#  a_clean<-as.data.frame(a_clean)
+  
+  a_filtered<- b[b$T>9 &b$T<101]
+  
+  gr_plots[[i]]<-a_filtered%>%as.data.frame() %>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = sample_names[i])+theme_minimal() +scale_fill_manual(values = c("#FFCCCB","#99CCFF","#8B0000" ,"#293352"))
+  print(gr_plots[i])
+}
+
+#a_filtered%>%as.data.frame() %>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = paste(sample_names[i]))+theme_minimal() +scale_fill_manual(values = c("#FFCCCB","#99CCFF","#8B0000" ,"#293352"))
+```
+```{r}
+gr_plots2<- list()
+for(i in 8:10){
+  a<-readRDS(file = paste("../data/raw_data/completely unprocessed/CpG/", sample_names[i],"_add_mCpG.rds" ,sep=""))
+  a_clean<- a[seqnames(a)%in% Total_chr]
+  
+  #get seq
+  a_clean_6<-resize(a_clean,3)
+  sequence_a<-getSeq(genome,a_clean_6)
+  x<-as.data.frame(sequence_a)
+  a_clean$CGN_seq<-x$x
+  name_T<-paste(sample_names[i],"_T",sep="")
+  #clean 
+  b<-a_clean %>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  b$score<-b$M/b$T
+  
+  #  name_T<-paste(sample_names[i],"_T",sep="")
+#  a_clean<-as.data.frame(a_clean)
+  
+  a_filtered<- b[b$T>9 &b$T<101]
+   
+  gr_plots2[[i]]<-a_filtered%>%as.data.frame() %>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = sample_names[i])+theme_minimal() +scale_fill_manual(values = c("#FFCCCB","#99CCFF","#8B0000" ,"#293352"))
+  print(gr_plots2[i])
+}
+```
+
+Lets look at the CpG data first
+We have to cleanup the "random"
+Reads falling into unmapped parts of the genome =chr_random
+
+```{r}
+
+GSM1382253<-readRDS("../data/raw_data/completely unprocessed/CpG/GSM1382253_add_mCpG.rds")
+
+GSM1382253
+Total_chr  <-  c(paste("chr", 1:22, sep=''), 'chrX','chrY')
+
+GSM1382253_clean <- GSM1382253[seqnames(GSM1382253) %in% Total_chr]
+print(GSM1382253_clean)
+```
+We will now add a column with the percentage of methylation (score)
+and a column with the downstream sequence
+and remove positions with 0 reads
+```{r}
+readRDS("../../methylation_project/data/TKO_DNMT3A2_wt_i12_WGBS_CGN.gr.rds")
+
+GSM1382253_clean$score<- GSM1382253_clean$GSM1382253_M/GSM1382253_clean$GSM1382253_T
+library(BSgenome.Mmusculus.UCSC.mm9)
+genome<-BSgenome.Mmusculus.UCSC.mm9
+
+#sequence<-getSeq(genome,GSM1382253_clean)
+
+#GSM1382253_clean_2<-GSM1382253_clean +1
+#GSM1382253_clean_2
+#sequenceGSM1382253_2<-getSeq(genome,GSM1382253_clean_2)
+
+#GSM1382253_clean_3<-GSM1382253_clean +2
+#GSM1382253_clean_3
+#sequenceGSM1382253_3<-getSeq(genome,GSM1382253_clean_3)
+
+#GSM1382253_clean_4<-flank(GSM1382253_clean,2, start=FALSE)
+#GSM1382253_clean_4
+#sequenceGSM1382253_4<-getSeq(genome,GSM1382253_clean_4)
+
+#GSM1382253_clean_5<-resize(GSM1382253_clean,2)
+#GSM1382253_clean_5
+#sequenceGSM1382253_5<-getSeq(genome,GSM1382253_clean_5)
+
+GSM1382253_clean_6<-resize(GSM1382253_clean,3)
+GSM1382253_clean_6
+sequenceGSM1382253_6<-getSeq(genome,GSM1382253_clean_6)
+
+x<-as.data.frame(sequenceGSM1382253_6)
+
+GSM1382253_clean$CGN_seq<-x$x
+
+GSM1382253_filt<-GSM1382253_clean[GSM1382253_clean$GSM1382253_T>0]
+
+GSM1382253_filtered<- GSM1382253_filt[GSM1382253_filt$GSM1382253_T>9 &GSM1382253_filt$GSM1382253_T<101]
+library(ggplot2)
+library(tidyverse)
+
+GSM1382253_filtered%>%as.data.frame() %>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = "DNMT3A_GSM1382253")+theme_minimal() +scale_fill_manual(values = c("#FFCCCB","#99CCFF","#8B0000" ,"#293352"))
+
+library(plyranges)
+bind_ranges(GSM1382253,GSM1382253_clean)
+```
+
+
+```{r}
+GSM1382253<-readRDS("../data/raw_data/completely unprocessed/CpG/GSM1382253_add_mCpG.rds")
+a
+b<-a[a$GSM1382253_T>0]
+b
+i=9
+j=101
+a_filtered<-a[a$GSM1382253_T>i & a$GSM1382253_T<j]
+#a_filtered
+
+b[seqnames(b) == "chrUn_random"]
+b[seqnames(b) == "chrY_random"]
+b[seqnames(b) == "chr1"]
+#a[seqnames(a) == "chrY_random"]
+```
+
+```{r}
+Total_chr  <-  c(paste("chr", 1:22, sep=''), 'chrX','chrY')
+a2 <- a[seqnames(a) == Total_chr]
+a2
+a2[a2$GSM1382253_T>0]
+a2 <- a[seqnames(a) %in% Total_chr]
+a2
+
+#a2_filtered<-a_filtered[seqnames(a_filtered) == Total_chr]
+#a2_filtered
+
+#a[seqnames(a) == "chrUn_random"]
+#a[seqnames(a) == "chrY_random"]
+```
+
+```{r}
+GSM748787<-readRDS("../data/raw_data/CpG/GSM748787_mCpG.rds")
+i=9
+j=101
+GSM748787_filtered<-GSM748787[GSM748787$GSM748787_T>i & GSM748787$GSM748787_T<j]
+
+GSM748787_filtered%>%as.data.frame() %>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = "WT_GSM748787_filtered")+theme_minimal() +scale_fill_manual(values = c("#FFCCCB","#99CCFF","#8B0000" ,"#293352"))
+
+GSM748786<-readRDS("../data/raw_data/CpG/GSM748786_mCpG.rds")
+i=9
+j=101
+GSM748786_filtered<-GSM748786[GSM748786$GSM748786_T>i & GSM748786$GSM748786_T<j]
+
+GSM748786_filtered%>%as.data.frame() %>% ggplot(aes(x=CGN_seq, y= score, fill=CGN_seq))+geom_bar(stat = "summary",fun="mean")+ labs(x="", y="Methylation score", fill="", title = "WT_GSM748786_filtered")+theme_minimal() +scale_fill_manual(values = c("#FFCCCB","#99CCFF","#8B0000" ,"#293352"))
+```
+

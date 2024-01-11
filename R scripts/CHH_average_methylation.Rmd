@@ -1,0 +1,371 @@
+---
+title: "CHH_overall_averages"
+author: "Amalia"
+date: "2023-07-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(devtools)
+library(GenomicRanges)
+library(plyranges)
+library(BSgenome.Mmusculus.UCSC.mm9)
+library(tidyverse)
+library(stringr)
+library(palettetown) #pokemon colour pallete
+library(wesanderson)
+#pokedex() shows the colour palketes
+# eg pokedex('pikachu')
+```
+
+We have the CHH methylation information split over chromosomes because the files are too large. 
+In this script we will extract the average from each one, and combine them to have a table for average methylation in each sample, which can be used for plotting.
+
+We have to filter each individual file before counting and averaging.
+
+
+We will calculate the average for every chromosome and multiply it by the number of Cs. 
+We will afterwards divide that by the TOTAL number of Cs
+
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+
+Total_chr  <-  c(paste("chr", 1:19, sep=''), 'chrX','chrY')
+
+
+test<-data.frame() #empty dataframe to add to inside the loop
+for(i in 1:10){
+  for(j in 1:21){
+    a<-readRDS(file = paste0("../data/raw_data/CHH/", sample_names[i],"_", Total_chr[j],".rds"))
+    a<- a[a$T>9 & a$T<101] #filter each file
+    a<-a %>% plyranges::filter(CGN_seq!="CNN") #filter out locations where we dont hav ethe trinucleotide sequence
+    avg<- a %>% group_by(CGN_seq) %>% summarise(avg_meth=mean(score)) #get average of each CHH
+    num<- a %>% group_by(CGN_seq) %>% summarise(C_num=plyranges::n()) #get number of each CHH
+    df<-merge(avg,num, by="CGN_seq") 
+    df$times<-df$avg_meth*df$C_num #multiply 
+    df<-df%>% as_tibble() %>%  pivot_wider(names_from =  CGN_seq,values_from = c(avg_meth, C_num, times)) #wide format 
+    e<-data.frame(chr=Total_chr[j], df) #add chr info
+    test<-bind_rows(test,e) #merge every chromosome (it adds NA when a column is missing from one of the two)
+    test[is.na(test)] = 0 #replace NAs wth 0
+  }
+f<-test %>%
+            bind_rows(summarise(., across(where(is.numeric), sum),
+                                   across(where(is.character), ~'Total'))) #add a row which is the sum of all previous rows
+f1<- f %>% select("chr" | starts_with('C')) %>% slice(n()) #keep the number of Cs
+f2<- f %>% select("chr" | starts_with('times')) %>% slice(n()) #keep the avg*number
+cha<-f2[-1]/f1[-1] #divide the sum of avg*number by the total number 
+#this will give you the total average for the genome
+g<-cha %>% pivot_longer(cols = everything(), values_to = "mean") #convert back to long format
+k<-g %>% mutate(CHH_seq = str_split(name, '_',simplify=TRUE)[,2], .before = mean) %>% select(-name) #keep only tri seq
+saveRDS(k,file=paste0("../data/processed/CHH_mean/", sample_names[i], ".rds"))#save the table created for this sample
+}
+
+
+#ggplot(k, aes(x=CGN_seq, y=value)) + geom_bar(stat="identity")
+
+#library(ggpubr) #for theme classic2
+#l<-ggplot(k, aes(x=CGN_seq, y=value)) + geom_bar(stat="identity") +theme_classic2()
+#ggsave("l.png",l)
+```
+test
+THIS WORKED
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+
+Total_chr  <-  c(paste("chr", 1:19, sep=''), 'chrX','chrY')
+
+
+#test<-data.frame() #empty dataframe to add to inside the loop
+for(i in 1:10){
+  test<-data.frame() #empty dataframe to add to inside the loop
+  for(j in 1:21){
+    a<-readRDS(file = paste0("../data/raw_data/CHH/", sample_names[i],"_", Total_chr[j],".rds"))
+    a<- a[a$T>9 & a$T<101] #filter each file
+    a<-a %>% plyranges::filter(CGN_seq!="CNN") #filter out locations where we dont hav ethe trinucleotide sequence
+    avg<- a %>% group_by(CGN_seq) %>% summarise(avg_meth=mean(score)) #get average of each CHH
+    num<- a %>% group_by(CGN_seq) %>% summarise(C_num=plyranges::n()) #get number of each CHH
+    df<-merge(avg,num, by="CGN_seq") 
+    df$times<-df$avg_meth*df$C_num #multiply 
+    df<-df%>% as_tibble() %>%  pivot_wider(names_from =  CGN_seq,values_from = c(avg_meth, C_num, times)) #wide format 
+    e<-data.frame(chr=Total_chr[j], df) #add chr info
+    test<-bind_rows(test,e) #merge every chromosome (it adds NA when a column is missing from one of the two)
+    test[is.na(test)] = 0 #replace NAs wth 0
+  }
+f<-test %>%
+            bind_rows(summarise(., across(where(is.numeric), sum),
+                                   across(where(is.character), ~'Total'))) #add a row which is the sum of all previous rows
+f1<- f %>% select("chr" | starts_with('C')) %>% slice(n()) #keep the number of Cs
+f2<- f %>% select("chr" | starts_with('times')) %>% slice(n()) #keep the avg*number
+cha<-f2[-1]/f1[-1] #divide the sum of avg*number by the total number 
+#this will give you the total average for the genome
+g<-cha %>% pivot_longer(cols = everything(), values_to = "mean") #convert back to long format
+k<-g %>% mutate(CHH_seq = str_split(name, '_',simplify=TRUE)[,2], .before = mean) %>% select(-name) #keep only tri seq
+saveRDS(k,file=paste0("../data/processed/CHH_mean_repeat/", sample_names[i], ".rds"))#save the table created for this sample
+}
+
+
+#ggplot(k, aes(x=CGN_seq, y=value)) + geom_bar(stat="identity")
+
+#library(ggpubr) #for theme classic2
+#l<-ggplot(k, aes(x=CGN_seq, y=value)) + geom_bar(stat="identity") +theme_classic2()
+#ggsave("l.png",l)
+```
+same but removing the unmethylated cytosines(score0)
+
+
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+
+Total_chr  <-  c(paste("chr", 1:19, sep=''), 'chrX','chrY')
+
+
+#test<-data.frame() #empty dataframe to add to inside the loop
+for(i in 1:10){
+  test<-data.frame() #empty dataframe to add to inside the loop
+  for(j in 1:21){
+    a<-readRDS(file = paste0("../data/raw_data/CHH/", sample_names[i],"_", Total_chr[j],".rds"))
+    a<- a[a$T>9 & a$T<101] #filter each file
+    a<- a %>% filter(score >0)
+    a<-a %>% plyranges::filter(CGN_seq!="CNN") #filter out locations where we dont hav ethe trinucleotide sequence
+    avg<- a %>% group_by(CGN_seq) %>% summarise(avg_meth=mean(score)) #get average of each CHH
+    num<- a %>% group_by(CGN_seq) %>% summarise(C_num=plyranges::n()) #get number of each CHH
+    df<-merge(avg,num, by="CGN_seq") 
+    df$times<-df$avg_meth*df$C_num #multiply 
+    df<-df%>% as_tibble() %>%  pivot_wider(names_from =  CGN_seq,values_from = c(avg_meth, C_num, times)) #wide format 
+    e<-data.frame(chr=Total_chr[j], df) #add chr info
+    test<-bind_rows(test,e) #merge every chromosome (it adds NA when a column is missing from one of the two)
+    test[is.na(test)] = 0 #replace NAs wth 0
+  }
+f<-test %>%
+            bind_rows(summarise(., across(where(is.numeric), sum),
+                                   across(where(is.character), ~'Total'))) #add a row which is the sum of all previous rows
+f1<- f %>% select("chr" | starts_with('C')) %>% dplyr::slice(dplyr::n()) #keep the number of Cs
+f2<- f %>% select("chr" | starts_with('times')) %>% dplyr::slice(dplyr::n()) #keep the avg*number
+cha<-f2[-1]/f1[-1] #divide the sum of avg*number by the total number 
+#this will give you the total average for the genome
+g<-cha %>% pivot_longer(cols = everything(), values_to = "mean") #convert back to long format
+k<-g %>% mutate(CHH_seq = str_split(name, '_',simplify=TRUE)[,2], .before = mean) %>% select(-name) #keep only tri seq
+saveRDS(k,file=paste0("../data/processed/CHH_mean/CHH_mean_removing methylation 0/", sample_names[i], ".rds"))#save the table created for this sample
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+test
+#with i=8
+#find the sum of each column
+f<-test %>%
+            bind_rows(summarise(., across(where(is.numeric), sum),
+                                   across(where(is.character), ~'Total'))) #add a row which is the sum of all previous rows
+#we only need the last row
+
+f1<- f %>% select("chr" | starts_with('C')) %>% slice(n()) #keep the number of Cs
+f2<- f %>% select("chr" | starts_with('times')) %>% slice(n()) #keep the avg*number
+cha<-f2[-1]/f1[-1] #divide the sum of avg*number by the total number 
+f
+f1
+f2
+cha
+
+g<-cha %>% pivot_longer(cols = everything(), values_to = "mean")
+k<-g %>% mutate(CHH_seq = str_split(name, '_',simplify=TRUE)[,2], .before = mean) %>% select(-name) #keep only tri seq
+k
+g
+
+```
+
+```{r}
+a<-readRDS(file = paste("../data/processed/CHH_mean/", sample_names[i],".rds" ,sep=""))
+```
+
+```{r}
+avg<-avg %>% as.tibble()
+
+plot<-avg %>%filter(!CGN_seq %in% c("CGA", "CGG","CGC","CGT")) %>% ggplot(aes(x=CGN_seq, y= avg_meth, fill=CGN_seq))+geom_bar(stat = "identity")+ labs(x="", y="Methylation score", fill="", title = paste0(sample_names[i],"_",addback[i]))+theme_classic() +scale_fill_manual(values= wes_palette("GrandBudapest2", n=12, type = "continuous"))
+plot
+```
+
+number of CHH with >0.5 meth score
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+
+Total_chr  <-  c(paste("chr", 1:19, sep=''), 'chrX','chrY')
+
+
+#test<-data.frame() #empty dataframe to add to inside the loop
+for(i in 1:10){
+  test<-data.frame() #empty dataframe to add to inside the loop
+  for(j in 1:21){
+    a<-readRDS(file = paste0("../data/raw_data/CHH/", sample_names[i],"_", Total_chr[j],".rds"))
+    a<- a[a$T>9 & a$T<101] #filter each file
+    a<- a %>% filter(score >0.5)
+    a<-a %>% plyranges::filter(CGN_seq!="CNN") #filter out locations where we dont hav ethe trinucleotide sequence
+   # avg<- a %>% group_by(CGN_seq) %>% summarise(avg_meth=mean(score)) #get average of each CHH
+    num<- a %>% group_by(CGN_seq) %>% summarise(C_num=plyranges::n()) #get number of each CHH
+  #  df<-merge(avg,num, by="CGN_seq") 
+   # df$times<-df$avg_meth*df$C_num #multiply 
+    num<-num%>% as_tibble() %>%  pivot_wider(names_from =  CGN_seq,values_from = C_num) #wide format 
+    if(nrow(num)>0){
+    e<-data.frame(chr=Total_chr[j], num) #add chr info
+    test<-bind_rows(test,e) #merge every chromosome (it adds NA when a column is missing from one of the two)
+    
+    test[is.na(test)] = 0 #replace NAs wth 0
+    }
+  }
+f<-test %>%
+            bind_rows(summarise(., across(where(is.numeric), sum),
+                                   across(where(is.character), ~'Total'))) #add a row which is the sum of all previous rows
+f1<- f %>% select("chr" | starts_with('C')) %>% dplyr::slice(dplyr::n()) #keep the number of Cs
+#f2<- f %>% select("chr" | starts_with('times')) %>% dplyr::slice(dplyr::n()) #keep the avg*number
+#cha<-f2[-1]/f1[-1] #divide the sum of avg*number by the total number 
+#this will give you the total average for the genome
+g<-f1 %>% pivot_longer(cols = -'chr', values_to = "number") %>% select(-'chr') #convert back to long format
+#k<-g %>% mutate(CHH_seq = str_split(name, '_',simplify=TRUE)[,2], .before = mean) %>% select(-name) #keep only tri seq
+saveRDS(g,file=paste0("../data/processed/CHH_mean/CHH_number_of_overhalf/", sample_names[i], ".rds"))#save the table created for this sample
+}
+```
+
+```{r}
+sessionInfo()
+```
+
+```{r}
+readRDS("../data/processed/CHH_mean/GSM4594635.rds")
+```
+```{r}
+readRDS("../data/processed/CHH_mean/GSM2533056.rds")
+
+```
+```{r}
+readRDS("../data/processed/CHH_mean/GSM1545748.rds")
+```
+
+```{r}
+```
+
+
+
+non-0 CH
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+
+Total_chr  <-  c(paste("chr", 1:19, sep=''), 'chrX','chrY')
+
+
+#test<-data.frame() #empty dataframe to add to inside the loop
+
+
+#ggplot(k, aes(x=CGN_seq, y=value)) + geom_bar(stat="identity")
+
+#library(ggpubr) #for theme classic2
+#l<-ggplot(k, aes(x=CGN_seq, y=value)) + geom_bar(stat="identity") +theme_classic2()
+#ggsave("l.png",l)
+
+for(i in 1:10){
+  test<-data.frame() #empty dataframe to add to inside the loop
+  for(j in 1:2){
+    a<-readRDS(file = paste0("../data/raw_data/CHH/", sample_names[i],"_", Total_chr[j],".rds"))
+    a<- a[a$T>9 & a$T<101] #filter each file
+    a<- a %>% filter(score >0)
+    a<-a %>% plyranges::filter(CGN_seq!="CNN") #filter out locations where we dont hav ethe trinucleotide sequence
+    a<-a %>% plyranges::filter(!CGN_seq %in% c("CGA", "CGG","CGC","CGT"))
+    a<-a %>% mutate(CHN_seq = case_when(
+    endsWith(CGN_seq, "A") ~ "CHA",
+    endsWith(CGN_seq, "G") ~ "CHG",
+    endsWith(CGN_seq, "T") ~ "CHT",
+    endsWith(CGN_seq, "C") ~ "CHC",
+    ))
+    avg<- a %>% group_by(CHN_seq) %>% summarise(avg_meth=mean(score)) #get average of each CHH
+    num<- a %>% group_by(CHN_seq) %>% summarise(C_num=plyranges::n()) #get number of each CHH
+    df<-merge(avg,num, by="CHN_seq") 
+    df$times<-df$avg_meth*df$C_num #multiply 
+    df<-df%>% as_tibble() %>%  pivot_wider(names_from =  CHN_seq,values_from = c(avg_meth, C_num, times)) #wide format 
+    e<-data.frame(chr=Total_chr[j], df) #add chr info
+    test<-bind_rows(test,e) #merge every chromosome (it adds NA when a column is missing from one of the two)
+    test[is.na(test)] = 0 #replace NAs wth 0
+  }
+f<-test %>%
+            bind_rows(summarise(., across(where(is.numeric), sum),
+                                   across(where(is.character), ~'Total'))) #add a row which is the sum of all previous rows
+f1<- f %>% select("chr" | starts_with('C')) %>% dplyr::slice(dplyr::n()) #keep the number of Cs
+f2<- f %>% select("chr" | starts_with('times')) %>% dplyr::slice(dplyr::n()) #keep the avg*number
+cha<-f2[-1]/f1[-1] #divide the sum of avg*number by the total number 
+#this will give you the total average for the genome
+g<-cha %>% pivot_longer(cols = everything(), values_to = "mean") #convert back to long format
+k<-g %>% mutate(CHH_seq = str_split(name, '_',simplify=TRUE)[,2], .before = mean) %>% select(-name) #keep only tri seq
+saveRDS(k,file=paste0("../data/processed/CHH_mean/CHH_mean_removing methylation 0/byCHN/", sample_names[i], ".rds"))#save the table created for this sample
+}
+```
+
+everything CH
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM1382254","GSM2533056","GSM4837324","GSM1382255","GSM1382256","GSM1545748","GSM748786","GSM748787")
+
+Total_chr  <-  c(paste("chr", 1:19, sep=''), 'chrX','chrY')
+
+
+#test<-data.frame() #empty dataframe to add to inside the loop
+
+
+#ggplot(k, aes(x=CGN_seq, y=value)) + geom_bar(stat="identity")
+
+#library(ggpubr) #for theme classic2
+#l<-ggplot(k, aes(x=CGN_seq, y=value)) + geom_bar(stat="identity") +theme_classic2()
+#ggsave("l.png",l)
+
+for(i in 1:10){
+  test<-data.frame() #empty dataframe to add to inside the loop
+  for(j in 1:2){
+    a<-readRDS(file = paste0("../data/raw_data/CHH/", sample_names[i],"_", Total_chr[j],".rds"))
+    a<- a[a$T>9 & a$T<101] #filter each file
+    #a<- a %>% filter(score >0)
+    a<-a %>% plyranges::filter(CGN_seq!="CNN") #filter out locations where we dont hav ethe trinucleotide sequence
+    a<-a %>% plyranges::filter(!CGN_seq %in% c("CGA", "CGG","CGC","CGT"))
+    a<-a %>% mutate(CHN_seq = case_when(
+    endsWith(CGN_seq, "A") ~ "CHA",
+    endsWith(CGN_seq, "G") ~ "CHG",
+    endsWith(CGN_seq, "T") ~ "CHT",
+    endsWith(CGN_seq, "C") ~ "CHC",
+    ))
+    avg<- a %>% group_by(CHN_seq) %>% summarise(avg_meth=mean(score)) #get average of each CHH
+    num<- a %>% group_by(CHN_seq) %>% summarise(C_num=plyranges::n()) #get number of each CHH
+    df<-merge(avg,num, by="CHN_seq") 
+    df$times<-df$avg_meth*df$C_num #multiply 
+    df<-df%>% as_tibble() %>%  pivot_wider(names_from =  CHN_seq,values_from = c(avg_meth, C_num, times)) #wide format 
+    e<-data.frame(chr=Total_chr[j], df) #add chr info
+    test<-bind_rows(test,e) #merge every chromosome (it adds NA when a column is missing from one of the two)
+    test[is.na(test)] = 0 #replace NAs wth 0
+  }
+f<-test %>%
+            bind_rows(summarise(., across(where(is.numeric), sum),
+                                   across(where(is.character), ~'Total'))) #add a row which is the sum of all previous rows
+f1<- f %>% select("chr" | starts_with('C')) %>% dplyr::slice(dplyr::n()) #keep the number of Cs
+f2<- f %>% select("chr" | starts_with('times')) %>% dplyr::slice(dplyr::n()) #keep the avg*number
+cha<-f2[-1]/f1[-1] #divide the sum of avg*number by the total number 
+#this will give you the total average for the genome
+g<-cha %>% pivot_longer(cols = everything(), values_to = "mean") #convert back to long format
+k<-g %>% mutate(CHH_seq = str_split(name, '_',simplify=TRUE)[,2], .before = mean) %>% select(-name) #keep only tri seq
+saveRDS(k,file=paste0("../data/processed/CHH_mean/byCHN/", sample_names[i], ".rds"))#save the table created for this sample
+}
+```

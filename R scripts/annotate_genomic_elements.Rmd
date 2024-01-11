@@ -1,0 +1,1194 @@
+---
+title: "Annotate genomic elements"
+author: "Amalia"
+date: "2023-06-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Bin the CpG files into 1kb/10kb sized windows
+We want to bin our genome into tiles, and get the ratio of methylation in purines and pyrimidines in each of these subgroups.
+In order To do that we have to calculate the average methylation of each CGN, and we will also count the number of mapped CGNs, which is what this script will do.
+
+load the libraries
+```{r, message=FALSE}
+library(GenomicRanges)
+library(tidyverse)
+#library (purrr)
+library(plyranges) #uncomment later for CpG
+#library(rlist)
+library(BSgenome.Mmusculus.UCSC.mm9)
+library(TxDb.Mmusculus.UCSC.mm9.knownGene)
+```
+
+```{r}
+txdb<- TxDb.Mmusculus.UCSC.mm9.knownGene
+#methods(class=class(txdb)
+Total_chr  <-  c(paste("chr", 1:19, sep=''), 'chrX','chrY')
+```
+
+
+Test for genes 
+```{r}
+promoters<-promoters(genes(txdb, single.strand.genes.only=FALSE)) #keeps geens that have exons in both strands 
+promoters<-unlist(promoters)
+promoters<-promoters %>% filter(seqnames %in% Total_chr)
+name_prom<-names(promoters) %>% as.tibble()
+promoters$gene_id<-name_prom$value
+promoters$width<-width(promoters)
+promoters
+#exons
+exons<-exonsBy(txdb,by = "gene")
+exons<-unlist(exons)
+exons<-exons %>% filter(seqnames %in% Total_chr)
+name_exons<-names(exons) %>% as.tibble()
+exons$gene_id<-name_exons$value
+exons$width<-width(exons)
+exons
+
+introns_1 <- intronsByTranscript(txdb, use.names=TRUE)
+
+#Unlist and remove duplicate introns.
+
+ulst <- unlist(introns_1)
+intronsNoDups <- ulst[!duplicated(ulst)]
+intronsNoDups<-intronsNoDups %>% filter(seqnames %in% Total_chr)
+txnames <- names(intronsNoDups)
+#map <- select(txdb, keys=txnames, keytype='TXNAME', cols='GENEID')
+tx_names<-txnames %>% as.tibble() %>% rename("TXNAME"=value)
+
+map<-select(txdb, keys(txdb, "GENEID"),
+              columns=c("GENEID","TXNAME"),
+              keytype="GENEID")
+a<-left_join(tx_names,map)
+introns<-intronsNoDups
+introns$gene_id<-a$GENEID
+introns$width<-width(introns)
+introns
+
+repetitive<-readRDS("../data/repeat.instance.gr.rds") #tuncay gave me this one
+
+
+whole<-tileGenome(seqinfo(Mmusculus),ntile = 1) #whole genome 
+whole<-unlist(whole)
+whole<-whole %>% filter(seqnames %in% Total_chr)
+#removed the random
+
+
+
+#
+strand(whole)<-"+"
+whole_plus<-whole
+strand(whole)<-"-"
+whole_minus<-whole
+whole_genome<-IRanges::union(whole_plus,whole_minus)
+
+#remove from whole anything that is in other, to create a "rest"
+
+whole_minus_one<-GenomicRanges::setdiff(whole_genome, promoters)
+whole_minus_two<-GenomicRanges::setdiff(whole_minus_one, introns)
+whole_minus_three<-GenomicRanges::setdiff(whole_minus_two, exons)
+whole_minus_four<-GenomicRanges::setdiff(whole_minus_three, repetitive)
+rest<-whole_minus_four
+rest$width<-width(rest)
+rest
+
+rest_df<-rest %>% as.tibble() %>% mutate("row_number"=row_number( ))
+rest<-rest_df %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+```
+
+How to annotate these regions with only the samples that have enough coverage
+first with the CG data
+
+```{r}
+sample_names<-c("GSM4594635","GSM1382253","GSM2533056","GSM4837324","GSM1382256","GSM1545748","GSM748786","GSM748787")
+addback<-c("DNMT3A2", "DNMT3A2", "DNMT3A1", "DNMT3B1","DNMT3B1","DNMT3B1","WT","WT")
+
+
+#a<-readRDS(file = paste("../data/raw_data/CpG/", sample_names[i],"_mCpG.rds" ,sep=""))
+```
+
+promoters first
+```{r}
+for(i in 1:8){
+  a<-readRDS(file = paste("../data/raw_data/CpG/", sample_names[i],"_mCpG.rds" ,sep=""))
+  a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>9 & a$T<101] #filter for 10 reads might have to change to 5
+  c<-find_overlaps(promoters,a)
+  avg<- c %>% group_by(gene_id) %>% summarise(avg_meth=mean(score))
+  tot<- c %>% group_by(gene_id) %>% summarise(CG_num=n())
+  totl<-merge(avg, tot, by="gene_id")
+  
+  #get average meth score per CGN per bin
+  e<-c %>% group_by(gene_id,CGN_seq) %>% summarise(mean_meth=mean(score))
+  e<-e %>% as.tibble() %>% spread(CGN_seq,mean_meth)
+  
+  d<- c %>% mutate(pur_pyr = case_when(CGN_seq == "CGA" | CGN_seq == "CGG" ~"Purine", CGN_seq == "CGT" | CGN_seq == "CGC" ~ "Pyrimidine"))
+  e_p<-d %>% group_by(gene_id,pur_pyr) %>% summarise(mean_meth=mean(score))
+  e_p<-e_p %>% as.tibble()%>% spread(pur_pyr,mean_meth)
+  e<-merge(e, e_p, by="gene_id")
+  
+  colnames(e)<-paste(colnames(e), "meth",sep="_" )
+  
+  #get number of each CGN per bin
+  ##e_2<-d %>% group_by(gene_id, CGN_seq) %>% summarise(count=n(), .groups = 'drop')
+  e_2<-d %>% group_by(gene_id, CGN_seq) %>% summarise(count=n())
+  e_2<-e_2 %>% as.tibble()%>% spread(CGN_seq,count)
+  e_p2<-d %>% group_by(gene_id,pur_pyr) %>% summarise(count=n())
+  e_p2<-e_p2 %>% as.tibble()%>% spread(pur_pyr,count)
+  e_2<-merge(e_2, e_p2, by="gene_id")
+  colnames(e_2)<-paste(colnames(e_2), "num", sep = "_")
+  
+  df<-cbind(e,e_2)
+  df<-cbind(totl,df)
+  df<-df %>% as.tibble()%>% dplyr::select(-c("gene_id_num","gene_id_meth")) 
+  #pf<-tile.df %>% mutate(rn= row_number()) %>% filter(rn %in% e_2$bin_num)
+  #df<-cbind(df, pf) %>% select(-"rn")
+  
+  #now create columns with modified methylation
+  df<-df %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+  df<-df %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  #now create col with ratio of those two
+  df <-df %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr))
+  
+  #now create columns with modified methylation
+  df<-df %>% mutate(Purine_num_mod = Purine_num + 0.01)
+  df<-df %>% mutate(Pyrimidine_num_mod = Pyrimidine_num + 0.01)
+  #now create col with ratio of those two
+  df <-df %>% mutate(ratio_pur_pyr_num = Purine_num_mod / Pyrimidine_num_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num = log2(ratio_pur_pyr_num))
+  df <-df %>% mutate(ratio_pur_pyr_num_unmod = Purine_num / Pyrimidine_num)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num_unmod = log2(ratio_pur_pyr_num_unmod))
+  df
+  saveRDS(df, file=paste0("../data/processed/Annotation of genomic elements/promoters/", sample_names[i], ".RDS"))
+
+  }
+```
+
+exons
+```{r}
+for(i in 1:8){
+  a<-readRDS(file = paste("../data/raw_data/CpG/", sample_names[i],"_mCpG.rds" ,sep=""))
+  a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>9 & a$T<101] #filter for 10 reads might have to change to 5
+  c<-find_overlaps(exons,a)
+  avg<- c %>% group_by(gene_id) %>% summarise(avg_meth=mean(score))
+  tot<- c %>% group_by(gene_id) %>% summarise(CG_num=n())
+  totl<-merge(avg, tot, by="gene_id")
+  
+  #get average meth score per CGN per bin
+  e<-c %>% group_by(gene_id,CGN_seq) %>% summarise(mean_meth=mean(score))
+  e<-e %>% as.tibble() %>% spread(CGN_seq,mean_meth)
+  
+  d<- c %>% mutate(pur_pyr = case_when(CGN_seq == "CGA" | CGN_seq == "CGG" ~"Purine", CGN_seq == "CGT" | CGN_seq == "CGC" ~ "Pyrimidine"))
+  e_p<-d %>% group_by(gene_id,pur_pyr) %>% summarise(mean_meth=mean(score))
+  e_p<-e_p %>% as.tibble()%>% spread(pur_pyr,mean_meth)
+  e<-merge(e, e_p, by="gene_id")
+  
+  colnames(e)<-paste(colnames(e), "meth",sep="_" )
+  
+  #get number of each CGN per bin
+  ##e_2<-d %>% group_by(gene_id, CGN_seq) %>% summarise(count=n(), .groups = 'drop')
+  e_2<-d %>% group_by(gene_id, CGN_seq) %>% summarise(count=n())
+  e_2<-e_2 %>% as.tibble()%>% spread(CGN_seq,count)
+  e_p2<-d %>% group_by(gene_id,pur_pyr) %>% summarise(count=n())
+  e_p2<-e_p2 %>% as.tibble()%>% spread(pur_pyr,count)
+  e_2<-merge(e_2, e_p2, by="gene_id")
+  colnames(e_2)<-paste(colnames(e_2), "num", sep = "_")
+  
+  df<-cbind(e,e_2)
+  df<-cbind(totl,df)
+  df<-df %>% as.tibble()%>% dplyr::select(-c("gene_id_num","gene_id_meth")) 
+  #pf<-tile.df %>% mutate(rn= row_number()) %>% filter(rn %in% e_2$bin_num)
+  #df<-cbind(df, pf) %>% select(-"rn")
+  
+  #now create columns with modified methylation
+  df<-df %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+  df<-df %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  #now create col with ratio of those two
+  df <-df %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr))
+  
+  #now create columns with modified methylation
+  df<-df %>% mutate(Purine_num_mod = Purine_num + 0.01)
+  df<-df %>% mutate(Pyrimidine_num_mod = Pyrimidine_num + 0.01)
+  #now create col with ratio of those two
+  df <-df %>% mutate(ratio_pur_pyr_num = Purine_num_mod / Pyrimidine_num_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num = log2(ratio_pur_pyr_num))
+  
+  df <-df %>% mutate(ratio_pur_pyr_num_unmod = Purine_num / Pyrimidine_num)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num_unmod = log2(ratio_pur_pyr_num_unmod))
+  df
+  saveRDS(df, file=paste0("../data/processed/Annotation of genomic elements/exons_of_one_gene/", sample_names[i], ".RDS"))
+
+  }
+```
+RE
+```{r}
+for(i in 1:8){
+  a<-readRDS(file = paste("../data/raw_data/CpG/", sample_names[i],"_mCpG.rds" ,sep=""))
+  a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>9 & a$T<101] #filter for 10 reads might have to change to 5
+  c<-find_overlaps(repetitive,a)
+  avg<- c %>% as.tibble() %>% group_by(names) %>% summarise(avg_meth=mean(score))
+  tot<- c %>% as.tibble()%>% group_by(names) %>% summarise(CG_num=n())
+  totl<-merge(avg, tot, by="names")
+  
+  #get average meth score per CGN per bin
+  e<-c %>% as.tibble()%>% group_by(names,CGN_seq) %>% summarise(mean_meth=mean(score))
+  e<-e %>% as.tibble() %>% spread(CGN_seq,mean_meth)
+  
+  d<- c %>% mutate(pur_pyr = case_when(CGN_seq == "CGA" | CGN_seq == "CGG" ~"Purine", CGN_seq == "CGT" | CGN_seq == "CGC" ~ "Pyrimidine"))
+  e_p<-d %>% as.tibble()%>% group_by(names,pur_pyr) %>% summarise(mean_meth=mean(score))
+  e_p<-e_p %>% as.tibble()%>% spread(pur_pyr,mean_meth)
+  e<-merge(e, e_p, by="names")
+  
+  colnames(e)<-paste(colnames(e), "meth",sep="_" )
+  
+  #get number of each CGN per bin
+  ##e_2<-d %>% group_by(gene_id, CGN_seq) %>% summarise(count=n(), .groups = 'drop')
+  e_2<-d %>% as.tibble()%>% group_by(names, CGN_seq) %>% summarise(count=n())
+  e_2<-e_2 %>% as.tibble()%>% spread(CGN_seq,count)
+  e_p2<-d %>% as.tibble()%>% group_by(names,pur_pyr) %>% summarise(count=n())
+  e_p2<-e_p2 %>% as.tibble()%>% spread(pur_pyr,count)
+  e_2<-merge(e_2, e_p2, by="names")
+  colnames(e_2)<-paste(colnames(e_2), "num", sep = "_")
+  
+  df<-cbind(e,e_2)
+  df<-cbind(totl,df)
+  df<-df %>% as.tibble()%>% dplyr::select(-c("names_num","names_meth")) 
+  #pf<-tile.df %>% mutate(rn= row_number()) %>% filter(rn %in% e_2$bin_num)
+  #df<-cbind(df, pf) %>% select(-"rn")
+  
+  #now create columns with modified methylation
+  df<-df %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+  df<-df %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  #now create col with ratio of those two
+  df <-df %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr))
+  
+  #now create columns with modified methylation
+  df<-df %>% mutate(Purine_num_mod = Purine_num + 0.01)
+  df<-df %>% mutate(Pyrimidine_num_mod = Pyrimidine_num + 0.01)
+  #now create col with ratio of those two
+  df <-df %>% mutate(ratio_pur_pyr_num = Purine_num_mod / Pyrimidine_num_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num = log2(ratio_pur_pyr_num))
+  
+  df <-df %>% mutate(ratio_pur_pyr_num_unmod = Purine_num / Pyrimidine_num)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num_unmod = log2(ratio_pur_pyr_num_unmod))
+  df
+  saveRDS(df, file=paste0("../data/processed/Annotation of genomic elements/RE/", sample_names[i], ".RDS"))
+
+  }
+```
+rest
+```{r}
+for(i in 1:8){
+  a<-readRDS(file = paste("../data/raw_data/CpG/", sample_names[i],"_mCpG.rds" ,sep=""))
+  a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>9 & a$T<101] #filter for 10 reads might have to change to 5
+  c<-find_overlaps(rest,a)
+  avg<- c %>% group_by(row_number) %>% summarise(avg_meth=mean(score))
+  tot<- c %>% group_by(row_number) %>% summarise(CG_num=n())
+  totl<-merge(avg, tot, by="row_number")
+  
+  #get average meth score per CGN per bin
+  e<-c %>% group_by(row_number,CGN_seq) %>% summarise(mean_meth=mean(score))
+  e<-e %>% as.tibble() %>% spread(CGN_seq,mean_meth)
+  
+  d<- c %>% mutate(pur_pyr = case_when(CGN_seq == "CGA" | CGN_seq == "CGG" ~"Purine", CGN_seq == "CGT" | CGN_seq == "CGC" ~ "Pyrimidine"))
+  e_p<-d %>% group_by(row_number,pur_pyr) %>% summarise(mean_meth=mean(score))
+  e_p<-e_p %>% as.tibble()%>% spread(pur_pyr,mean_meth)
+  e<-merge(e, e_p, by="row_number")
+  
+  colnames(e)<-paste(colnames(e), "meth",sep="_" )
+  
+  #get number of each CGN per bin
+  ##e_2<-d %>% group_by(gene_id, CGN_seq) %>% summarise(count=n(), .groups = 'drop')
+  e_2<-d %>% group_by(row_number, CGN_seq) %>% summarise(count=n())
+  e_2<-e_2 %>% as.tibble()%>% spread(CGN_seq,count)
+  e_p2<-d %>% group_by(row_number,pur_pyr) %>% summarise(count=n())
+  e_p2<-e_p2 %>% as.tibble()%>% spread(pur_pyr,count)
+  e_2<-merge(e_2, e_p2, by="row_number")
+  colnames(e_2)<-paste(colnames(e_2), "num", sep = "_")
+  
+  df<-cbind(e,e_2)
+  df<-cbind(totl,df)
+  df<-df %>% as.tibble()%>% dplyr::select(-c("row_number_num","row_number_meth")) 
+  #pf<-tile.df %>% mutate(rn= row_number()) %>% filter(rn %in% e_2$bin_num)
+  #df<-cbind(df, pf) %>% select(-"rn")
+  
+  #now create columns with modified methylation
+  df<-df %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+  df<-df %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  #now create col with ratio of those two
+  df <-df %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr))
+  
+  #now create columns with modified methylation
+  df<-df %>% mutate(Purine_num_mod = Purine_num + 0.01)
+  df<-df %>% mutate(Pyrimidine_num_mod = Pyrimidine_num + 0.01)
+  #now create col with ratio of those two
+  df <-df %>% mutate(ratio_pur_pyr_num = Purine_num_mod / Pyrimidine_num_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num = log2(ratio_pur_pyr_num))
+  
+  df <-df %>% mutate(ratio_pur_pyr_num_unmod = Purine_num / Pyrimidine_num)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num_unmod = log2(ratio_pur_pyr_num_unmod))
+  df
+  saveRDS(df, file=paste0("../data/processed/Annotation of genomic elements/rest/", sample_names[i], ".RDS"))
+
+  }
+```
+
+
+
+```{r}
+df
+```
+
+for each 
+```{r}
+b<-repetitive %>% plyranges::filter(seqnames=="chr1")
+b_2<-b[1:30,]
+find_overlaps(b_2,a)
+find_overlaps(a,b_2)
+```
+
+test
+```{r}
+b<-promoters %>% plyranges::filter(seqnames=="chrY")
+b_2<-b[1:5,]
+c<-find_overlaps(b_2,a)
+d<-find_overlaps(a,b_2)
+#like before
+c %>% group_by(gene_id) %>% summarise(avg_meth=mean(score))
+
+#calculate the length of the element as well
+#every metric in one sample, cbind to have them all
+#have one df for each sample? like promoter_3a_sampleGSM23 , promoter_3a_sampleGSM12
+#and etc exon_3a_sample
+#then 
+c
+d
+c %>% group_by(gene_id) %>% summarise(avg_meth=mean(score))
+d %>% group_by(gene_id) %>% summarise(avg_meth=mean(score))
+```
+
+```{r}
+b_2
+a %>% filter(seqnames=="chrY") %>% as.tibble() %>% filter(start>796026) %>% filter(start<798225)
+
+
+b_2
+a %>% filter(seqnames=="chr1") %>% as.tibble() %>% filter(start>100000002) %>% filter(start<100016091)
+```
+
+
+now for each intron/ exon so not grouping by gene
+```{r}
+introns_df<-introns %>% as.tibble() %>% mutate("row_number"=row_number( ))
+introns<-introns_df %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+exons_df<-exons %>% as.tibble() %>% mutate("row_number"=row_number( ))
+exons<-exons_df %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+```
+
+exons
+```{r}
+for(i in 1:8){
+  a<-readRDS(file = paste("../data/raw_data/CpG/", sample_names[i],"_mCpG.rds" ,sep=""))
+  a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>9 & a$T<101] #filter for 10 reads might have to change to 5
+  c<-find_overlaps(introns,a)
+  avg<- c %>% group_by(row_number) %>% summarise(avg_meth=mean(score))
+  tot<- c %>% group_by(row_number) %>% summarise(CG_num=n())
+  totl<-merge(avg, tot, by="row_number")
+  
+  #get average meth score per CGN per bin
+  e<-c %>% group_by(row_number,CGN_seq) %>% summarise(mean_meth=mean(score))
+  e<-e %>% as.tibble() %>% spread(CGN_seq,mean_meth)
+  
+  d<- c %>% mutate(pur_pyr = case_when(CGN_seq == "CGA" | CGN_seq == "CGG" ~"Purine", CGN_seq == "CGT" | CGN_seq == "CGC" ~ "Pyrimidine"))
+  e_p<-d %>% group_by(row_number,pur_pyr) %>% summarise(mean_meth=mean(score))
+  e_p<-e_p %>% as.tibble()%>% spread(pur_pyr,mean_meth)
+  e<-merge(e, e_p, by="row_number")
+  
+  colnames(e)<-paste(colnames(e), "meth",sep="_" )
+  
+  #get number of each CGN per bin
+  ##e_2<-d %>% group_by(gene_id, CGN_seq) %>% summarise(count=n(), .groups = 'drop')
+  e_2<-d %>% group_by(row_number, CGN_seq) %>% summarise(count=n())
+  e_2<-e_2 %>% as.tibble()%>% spread(CGN_seq,count)
+  e_p2<-d %>% group_by(row_number,pur_pyr) %>% summarise(count=n())
+  e_p2<-e_p2 %>% as.tibble()%>% spread(pur_pyr,count)
+  e_2<-merge(e_2, e_p2, by="row_number")
+  colnames(e_2)<-paste(colnames(e_2), "num", sep = "_")
+  
+  df<-cbind(e,e_2)
+  df<-cbind(totl,df)
+  df<-df %>% as.tibble()%>% dplyr::select(-c("row_number_num","row_number_meth")) 
+  #pf<-tile.df %>% mutate(rn= row_number()) %>% filter(rn %in% e_2$bin_num)
+  #df<-cbind(df, pf) %>% select(-"rn")
+  
+  #now create columns with modified methylation
+  df<-df %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+  df<-df %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  #now create col with ratio of those two
+  df <-df %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr))
+  
+  #now create columns with modified methylation
+  df<-df %>% mutate(Purine_num_mod = Purine_num + 0.01)
+  df<-df %>% mutate(Pyrimidine_num_mod = Pyrimidine_num + 0.01)
+  #now create col with ratio of those two
+  df <-df %>% mutate(ratio_pur_pyr_num = Purine_num_mod / Pyrimidine_num_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num = log2(ratio_pur_pyr_num))
+  
+  df <-df %>% mutate(ratio_pur_pyr_num_unmod = Purine_num / Pyrimidine_num)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num_unmod = log2(ratio_pur_pyr_num_unmod))
+  df
+  saveRDS(df, file=paste0("../data/processed/Annotation of genomic elements/introns_individual/", sample_names[i], ".RDS"))
+
+  }
+```
+
+```{r}
+#idx <- map$GENEID[!is.na(map$GENEID)]
+#intronsByGene <- split(intronsNoDups[!is.na(map$GENEID)], idx)
+#names(intronsByGene) <- unique(idx)
+#intr<-unlist(intronsByGene)
+#a<-names(intr) %>% as.tibble()  
+
+#%>% separate(value,c("id","tx","extra"), sep = "." )
+#a<-names(intr) %>% as.tibble() %>% separate(value,c("id","tx","extra"), sep = "." )
+##strsplit(a$value, "[.]")[[1]][1]
+#a<-names(intr) %>% as.tibble() %>%
+#  str_split(a$value,".",2)
+
+#get ids here
+#a<-names(intr) %>% as.tibble() %>% separate(value,c("id","tx","extra"))
+
+#intr$gene_id<-a$id
+#list_names<-rep(names(intronsByGene))
+#mcols(intr)$gene_id<-list_names
+#intr$gene_id<-rep(names(intronsByGene), elementLengths(intronsByGene))
+
+#215294
+```
+
+previous way
+```{r}
+txdb<- TxDb.Mmusculus.UCSC.mm9.knownGene
+#methods(class=class(txdb))
+#I will keep the promoters of genes and not all transcripts
+promoters<-promoters(genes(txdb, single.strand.genes.only=FALSE)) #keeps geens that have exons in both strands 
+promoters<-unlist(promoters)
+promoters<-promoters %>% filter(seqnames %in% Total_chr)
+#promoters<-disjoin_ranges(promoters)
+introns<-intronsByTranscript(txdb) #theloun unlist
+introns<-unlist(introns)
+introns<-introns %>% filter(seqnames %in% Total_chr)
+#introns<-disjoin_ranges(introns)
+exons<-exonsBy(txdb)
+exons<-unlist(exons)
+exons<-exons %>% filter(seqnames %in% Total_chr)
+#exons<-disjoin_ranges(exons)
+exons
+introns
+repetitive<-readRDS("../data/repeat.instance.gr.rds") #tuncay gave me this one
+#disjoin_ranges(repetitive)
+
+
+
+
+whole<-tileGenome(seqinfo(Mmusculus),ntile = 1) #whole genome 
+whole<-unlist(whole)
+whole<-whole %>% filter(seqnames %in% Total_chr)
+#removed the random
+
+
+
+#
+strand(whole)<-"+"
+whole_plus<-whole
+strand(whole)<-"-"
+whole_minus<-whole
+whole_genome<-union(whole_plus,whole_minus)
+
+#remove from whole anything that is in other, to create a "rest"
+
+whole_minus_one<-GenomicRanges::setdiff(whole_genome, promoters)
+whole_minus_two<-GenomicRanges::setdiff(whole_minus_one, introns)
+whole_minus_three<-GenomicRanges::setdiff(whole_minus_two, exons)
+whole_minus_four<-GenomicRanges::setdiff(whole_minus_three, repetitive)
+rest<-whole_minus_four
+```
+
+#for CHH
+```{r}
+Total_chr  <-  c(paste("chr", 1:19, sep=''), 'chrX','chrY')
+chh_names<-c("CAA","CAT","CAG","CAC","CTA","CTT","CTG","CTC","CCA","CCT","CCG","CCC")
+```
+promoters first
+```{r}
+for(i in 1:8){
+  all<-data.frame()
+  for(j in 1:21){
+  a<-readRDS(file = paste0("../data/raw_data/CHH/", sample_names[i],"_", Total_chr[j],".rds"))
+  #a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>9 & a$T<101] #filter for 10 reads might have to change to 5
+  a<-a[which(elementMetadata(a)[,"CGN_seq"]%in% chh_names)]
+  c<-find_overlaps(promoters,a)
+  if(NROW(c)>0){
+  avg<- c %>% group_by(gene_id) %>% summarise(avg_meth=mean(score))
+  tot<- c %>% group_by(gene_id) %>% summarise(CG_num=n())
+  totl<-merge(avg, tot, by="gene_id")
+  
+  #get average meth score per CGN per bin
+  e<-c %>% group_by(gene_id,CGN_seq) %>% summarise(mean_meth=mean(score))
+  e_s<-e %>% as.tibble() %>% spread(CGN_seq,mean_meth)
+  
+  d<-c %>% mutate(pur_pyr = case_when(
+    endsWith(CGN_seq, "A") ~ "Purine",
+    endsWith(CGN_seq, "G") ~ "Purine",
+    endsWith(CGN_seq, "T") ~ "Pyrimidine",
+    endsWith(CGN_seq, "C") ~ "Pyrimidine",
+    ))
+  e_p<-d %>% group_by(gene_id,pur_pyr) %>% summarise(mean_meth=mean(score))
+  e_p<-e_p %>% as.tibble()%>% spread(pur_pyr,mean_meth)
+  e<-merge(e_s, e_p, by="gene_id")
+  
+  colnames(e)<-paste(colnames(e), "meth",sep="_" )
+  
+  #get number of each CGN per bin
+  ##e_2<-d %>% group_by(gene_id, CGN_seq) %>% summarise(count=n(), .groups = 'drop')
+  e_2<-d %>% group_by(gene_id, CGN_seq) %>% summarise(count=n())
+  e_2<-e_2 %>% as.tibble()%>% spread(CGN_seq,count)
+  e_p2<-d %>% group_by(gene_id,pur_pyr) %>% summarise(count=n())
+  e_p2<-e_p2 %>% as.tibble()%>% spread(pur_pyr,count)
+  e_2<-merge(e_2, e_p2, by="gene_id")
+  colnames(e_2)<-paste(colnames(e_2), "num", sep = "_")
+  
+  df<-cbind(e,e_2)
+  df<-cbind(totl,df)
+  df<-df %>% as.tibble()%>% dplyr::select(-c("gene_id_num","gene_id_meth")) 
+  #pf<-tile.df %>% mutate(rn= row_number()) %>% filter(rn %in% e_2$bin_num)
+  #df<-cbind(df, pf) %>% select(-"rn")
+  
+  #now create columns with modified methylation
+  df<-df %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+  df<-df %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  #now create col with ratio of those two
+  df <-df %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr))
+  
+  #now create columns with modified methylation
+  df<-df %>% mutate(Purine_num_mod = Purine_num + 0.01)
+  df<-df %>% mutate(Pyrimidine_num_mod = Pyrimidine_num + 0.01)
+  #now create col with ratio of those two
+  df <-df %>% mutate(ratio_pur_pyr_num = Purine_num_mod / Pyrimidine_num_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num = log2(ratio_pur_pyr_num))
+  df <-df %>% mutate(ratio_pur_pyr_num_unmod = Purine_num / Pyrimidine_num)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num_unmod = log2(ratio_pur_pyr_num_unmod))
+  all<-bind_rows(all,df)
+  }
+  #bind
+  }
+  saveRDS(all, file=paste0("../data/processed/Annotation of genomic elements/CHH/promoters/", sample_names[i], ".RDS"))
+
+}
+#1,189 for 1 
+```
+```{r}
+all
+df
+```
+
+
+exons
+
+```{r}
+for(i in 1:8){
+  all<-data.frame()
+  for(j in 1:21){
+  a<-readRDS(file = paste0("../data/raw_data/CHH/", sample_names[i],"_", Total_chr[j],".rds"))
+  #a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>9 & a$T<101] #filter for 10 reads might have to change to 5
+  a<-a[which(elementMetadata(a)[,"CGN_seq"]%in% chh_names)]
+  c<-find_overlaps(exons,a)
+  if(NROW(c)>0){
+  avg<- c %>% group_by(gene_id) %>% summarise(avg_meth=mean(score))
+  tot<- c %>% group_by(gene_id) %>% summarise(CG_num=n())
+  totl<-merge(avg, tot, by="gene_id")
+  
+  #get average meth score per CGN per bin
+  e<-c %>% group_by(gene_id,CGN_seq) %>% summarise(mean_meth=mean(score))
+  e_s<-e %>% as.tibble() %>% spread(CGN_seq,mean_meth)
+  
+  d<-c %>% mutate(pur_pyr = case_when(
+    endsWith(CGN_seq, "A") ~ "Purine",
+    endsWith(CGN_seq, "G") ~ "Purine",
+    endsWith(CGN_seq, "T") ~ "Pyrimidine",
+    endsWith(CGN_seq, "C") ~ "Pyrimidine",
+    ))
+  e_p<-d %>% group_by(gene_id,pur_pyr) %>% summarise(mean_meth=mean(score))
+  e_p<-e_p %>% as.tibble()%>% spread(pur_pyr,mean_meth)
+  e<-merge(e_s, e_p, by="gene_id")
+  
+  colnames(e)<-paste(colnames(e), "meth",sep="_" )
+  
+  #get number of each CGN per bin
+  ##e_2<-d %>% group_by(gene_id, CGN_seq) %>% summarise(count=n(), .groups = 'drop')
+  e_2<-d %>% group_by(gene_id, CGN_seq) %>% summarise(count=n())
+  e_2<-e_2 %>% as.tibble()%>% spread(CGN_seq,count)
+  e_p2<-d %>% group_by(gene_id,pur_pyr) %>% summarise(count=n())
+  e_p2<-e_p2 %>% as.tibble()%>% spread(pur_pyr,count)
+  e_2<-merge(e_2, e_p2, by="gene_id")
+  colnames(e_2)<-paste(colnames(e_2), "num", sep = "_")
+  
+  df<-cbind(e,e_2)
+  df<-cbind(totl,df)
+  df<-df %>% as.tibble()%>% dplyr::select(-c("gene_id_num","gene_id_meth")) 
+  #pf<-tile.df %>% mutate(rn= row_number()) %>% filter(rn %in% e_2$bin_num)
+  #df<-cbind(df, pf) %>% select(-"rn")
+  
+  #now create columns with modified methylation
+  #test
+  if('Purine_meth' %in% names(df)){
+  df<-df %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+  }
+  if('Pyrimidine_meth' %in% names(df)){
+  df<-df %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  }
+  #now create col with ratio of those two
+  if('Pyrimidine_meth' %in% names(df)&'Purine_meth' %in% names(df)){
+  df <-df %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr))
+  }
+  
+  #now create columns with modified methylation
+  if('Purine_num' %in% names(df)){
+  df<-df %>% mutate(Purine_num_mod = Purine_num + 0.01)
+  }
+  if('Pyrimidine_num' %in% names(df)){
+  df<-df %>% mutate(Pyrimidine_num_mod = Pyrimidine_num + 0.01)
+  }
+  #now create col with ratio of those two
+  if('Purine_num' %in% names(df)&'Pyrimidine_num' %in% names(df)){
+  df <-df %>% mutate(ratio_pur_pyr_num = Purine_num_mod / Pyrimidine_num_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num = log2(ratio_pur_pyr_num))
+  df <-df %>% mutate(ratio_pur_pyr_num_unmod = Purine_num / Pyrimidine_num)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num_unmod = log2(ratio_pur_pyr_num_unmod))
+  }
+  all<-bind_rows(all,df)
+  
+  #bind
+  }
+  }
+  saveRDS(all, file=paste0("../data/processed/Annotation of genomic elements/CHH/exons_of_one_gene/", sample_names[i], ".RDS"))
+
+}
+
+```
+
+```{r}
+test_all<-bind_rows(all,df)
+df
+tail(test_all)
+```
+
+introns
+
+```{r}
+for(i in 1:8){
+  all<-data.frame()
+  for(j in 1:21){
+  a<-readRDS(file = paste0("../data/raw_data/CHH/", sample_names[i],"_", Total_chr[j],".rds"))
+  #a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>9 & a$T<101] #filter for 10 reads might have to change to 5
+  a<-a[which(elementMetadata(a)[,"CGN_seq"]%in% chh_names)]
+  c<-find_overlaps(introns,a)
+  if(NROW(c)>0){
+  avg<- c %>% group_by(gene_id) %>% summarise(avg_meth=mean(score))
+  tot<- c %>% group_by(gene_id) %>% summarise(CG_num=n())
+  totl<-merge(avg, tot, by="gene_id")
+  
+  #get average meth score per CGN per bin
+  e<-c %>% group_by(gene_id,CGN_seq) %>% summarise(mean_meth=mean(score))
+  e_s<-e %>% as.tibble() %>% spread(CGN_seq,mean_meth)
+  
+  d<-c %>% mutate(pur_pyr = case_when(
+    endsWith(CGN_seq, "A") ~ "Purine",
+    endsWith(CGN_seq, "G") ~ "Purine",
+    endsWith(CGN_seq, "T") ~ "Pyrimidine",
+    endsWith(CGN_seq, "C") ~ "Pyrimidine",
+    ))
+  e_p<-d %>% group_by(gene_id,pur_pyr) %>% summarise(mean_meth=mean(score))
+  e_p<-e_p %>% as.tibble()%>% spread(pur_pyr,mean_meth)
+  e<-merge(e_s, e_p, by="gene_id")
+  
+  colnames(e)<-paste(colnames(e), "meth",sep="_" )
+  
+  #get number of each CGN per bin
+  ##e_2<-d %>% group_by(gene_id, CGN_seq) %>% summarise(count=n(), .groups = 'drop')
+  e_2<-d %>% group_by(gene_id, CGN_seq) %>% summarise(count=n())
+  e_2<-e_2 %>% as.tibble()%>% spread(CGN_seq,count)
+  e_p2<-d %>% group_by(gene_id,pur_pyr) %>% summarise(count=n())
+  e_p2<-e_p2 %>% as.tibble()%>% spread(pur_pyr,count)
+  e_2<-merge(e_2, e_p2, by="gene_id")
+  colnames(e_2)<-paste(colnames(e_2), "num", sep = "_")
+  
+  df<-cbind(e,e_2)
+  df<-cbind(totl,df)
+  df<-df %>% as.tibble()%>% dplyr::select(-c("gene_id_num","gene_id_meth")) 
+  #pf<-tile.df %>% mutate(rn= row_number()) %>% filter(rn %in% e_2$bin_num)
+  #df<-cbind(df, pf) %>% select(-"rn")
+  
+#now create columns with modified methylation
+  #test
+  if('Purine_meth' %in% names(df)){
+  df<-df %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+  }
+  if('Pyrimidine_meth' %in% names(df)){
+  df<-df %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  }
+  #now create col with ratio of those two
+  if('Pyrimidine_meth' %in% names(df)&'Purine_meth' %in% names(df)){
+  df <-df %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr))
+  }
+  
+  #now create columns with modified methylation
+  if('Purine_num' %in% names(df)){
+  df<-df %>% mutate(Purine_num_mod = Purine_num + 0.01)
+  }
+  if('Pyrimidine_num' %in% names(df)){
+  df<-df %>% mutate(Pyrimidine_num_mod = Pyrimidine_num + 0.01)
+  }
+  #now create col with ratio of those two
+  if('Purine_num' %in% names(df)&'Pyrimidine_num' %in% names(df)){
+  df <-df %>% mutate(ratio_pur_pyr_num = Purine_num_mod / Pyrimidine_num_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num = log2(ratio_pur_pyr_num))
+  df <-df %>% mutate(ratio_pur_pyr_num_unmod = Purine_num / Pyrimidine_num)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num_unmod = log2(ratio_pur_pyr_num_unmod))
+  }
+  all<-bind_rows(all,df)
+  #bind
+  }
+  }
+  saveRDS(all, file=paste0("../data/processed/Annotation of genomic elements/CHH/introns_of_one_gene/", sample_names[i], ".RDS"))
+
+}
+
+```
+
+
+RE
+```{r}
+for(i in 1:8){
+  all<-data.frame()
+  for(j in 1:21){
+  a<-readRDS(file = paste0("../data/raw_data/CHH/", sample_names[i],"_", Total_chr[j],".rds"))
+  #a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>9 & a$T<101] #filter for 10 reads might have to change to 5
+  a<-a[which(elementMetadata(a)[,"CGN_seq"]%in% chh_names)]
+  c<-find_overlaps(repetitive,a)
+  if(NROW(c)>0){
+  avg<- c %>% as.tibble() %>% group_by(names) %>% summarise(avg_meth=mean(score))
+  tot<- c %>% as.tibble()%>% group_by(names) %>% summarise(CG_num=n())
+  totl<-merge(avg, tot, by="names")
+  
+  #get average meth score per CGN per bin
+  e<-c %>% as.tibble()%>% group_by(names,CGN_seq) %>% summarise(mean_meth=mean(score))
+  e<-e %>% as.tibble() %>% spread(CGN_seq,mean_meth)
+  
+  d<-c %>% mutate(pur_pyr = case_when(
+    endsWith(CGN_seq, "A") ~ "Purine",
+    endsWith(CGN_seq, "G") ~ "Purine",
+    endsWith(CGN_seq, "T") ~ "Pyrimidine",
+    endsWith(CGN_seq, "C") ~ "Pyrimidine",
+    ))
+  e_p<-d %>% as.tibble()%>% group_by(names,pur_pyr) %>% summarise(mean_meth=mean(score))
+  e_p<-e_p %>% as.tibble()%>% spread(pur_pyr,mean_meth)
+  e<-merge(e, e_p, by="names")
+  
+  colnames(e)<-paste(colnames(e), "meth",sep="_" )
+  
+  #get number of each CGN per bin
+  ##e_2<-d %>% group_by(gene_id, CGN_seq) %>% summarise(count=n(), .groups = 'drop')
+  e_2<-d %>% as.tibble()%>% group_by(names, CGN_seq) %>% summarise(count=n())
+  e_2<-e_2 %>% as.tibble()%>% spread(CGN_seq,count)
+  e_p2<-d %>% as.tibble()%>% group_by(names,pur_pyr) %>% summarise(count=n())
+  e_p2<-e_p2 %>% as.tibble()%>% spread(pur_pyr,count)
+  e_2<-merge(e_2, e_p2, by="names")
+  colnames(e_2)<-paste(colnames(e_2), "num", sep = "_")
+  
+  df<-cbind(e,e_2)
+  df<-cbind(totl,df)
+  df<-df %>% as.tibble()%>% dplyr::select(-c("names_num","names_meth")) 
+  #pf<-tile.df %>% mutate(rn= row_number()) %>% filter(rn %in% e_2$bin_num)
+  #df<-cbind(df, pf) %>% select(-"rn")
+  
+#now create columns with modified methylation
+  #test
+  if('Purine_meth' %in% names(df)){
+  df<-df %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+  }
+  if('Pyrimidine_meth' %in% names(df)){
+  df<-df %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  }
+  #now create col with ratio of those two
+  if('Pyrimidine_meth' %in% names(df)&'Purine_meth' %in% names(df)){
+  df <-df %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr))
+  }
+  
+  #now create columns with modified methylation
+  if('Purine_num' %in% names(df)){
+  df<-df %>% mutate(Purine_num_mod = Purine_num + 0.01)
+  }
+  if('Pyrimidine_num' %in% names(df)){
+  df<-df %>% mutate(Pyrimidine_num_mod = Pyrimidine_num + 0.01)
+  }
+  #now create col with ratio of those two
+  if('Purine_num' %in% names(df)&'Pyrimidine_num' %in% names(df)){
+  df <-df %>% mutate(ratio_pur_pyr_num = Purine_num_mod / Pyrimidine_num_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num = log2(ratio_pur_pyr_num))
+  df <-df %>% mutate(ratio_pur_pyr_num_unmod = Purine_num / Pyrimidine_num)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num_unmod = log2(ratio_pur_pyr_num_unmod))
+  }
+  all<-bind_rows(all,df)
+  #bind
+  }
+  }
+  saveRDS(all, file=paste0("../data/processed/Annotation of genomic elements/CHH/RE/", sample_names[i], ".RDS"))
+
+  }
+```
+
+
+rest
+```{r}
+for(i in 1:8){
+all<-data.frame()
+  for(j in 1:21){
+  a<-readRDS(file = paste0("../data/raw_data/CHH/", sample_names[i],"_", Total_chr[j],".rds"))
+  #a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>9 & a$T<101] #filter for 10 reads might have to change to 5
+  a<-a[which(elementMetadata(a)[,"CGN_seq"]%in% chh_names)]
+  c<-find_overlaps(rest,a)
+  if(NROW(c)>0){
+  avg<- c %>% group_by(row_number) %>% summarise(avg_meth=mean(score))
+  tot<- c %>% group_by(row_number) %>% summarise(CG_num=n())
+  totl<-merge(avg, tot, by="row_number")
+  
+  #get average meth score per CGN per bin
+  e<-c %>% group_by(row_number,CGN_seq) %>% summarise(mean_meth=mean(score))
+  e<-e %>% as.tibble() %>% spread(CGN_seq,mean_meth)
+  
+  d<-c %>% mutate(pur_pyr = case_when(
+    endsWith(CGN_seq, "A") ~ "Purine",
+    endsWith(CGN_seq, "G") ~ "Purine",
+    endsWith(CGN_seq, "T") ~ "Pyrimidine",
+    endsWith(CGN_seq, "C") ~ "Pyrimidine",
+    ))
+  e_p<-d %>% group_by(row_number,pur_pyr) %>% summarise(mean_meth=mean(score))
+  e_p<-e_p %>% as.tibble()%>% spread(pur_pyr,mean_meth)
+  e<-merge(e, e_p, by="row_number")
+  
+  colnames(e)<-paste(colnames(e), "meth",sep="_" )
+  
+  #get number of each CGN per bin
+  ##e_2<-d %>% group_by(gene_id, CGN_seq) %>% summarise(count=n(), .groups = 'drop')
+  e_2<-d %>% group_by(row_number, CGN_seq) %>% summarise(count=n())
+  e_2<-e_2 %>% as.tibble()%>% spread(CGN_seq,count)
+  e_p2<-d %>% group_by(row_number,pur_pyr) %>% summarise(count=n())
+  e_p2<-e_p2 %>% as.tibble()%>% spread(pur_pyr,count)
+  e_2<-merge(e_2, e_p2, by="row_number")
+  colnames(e_2)<-paste(colnames(e_2), "num", sep = "_")
+  
+  df<-cbind(e,e_2)
+  df<-cbind(totl,df)
+  df<-df %>% as.tibble()%>% dplyr::select(-c("row_number_num","row_number_meth")) 
+  #pf<-tile.df %>% mutate(rn= row_number()) %>% filter(rn %in% e_2$bin_num)
+  #df<-cbind(df, pf) %>% select(-"rn")
+  
+  #now create columns with modified methylation
+  #test
+  if('Purine_meth' %in% names(df)){
+  df<-df %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+  }
+  if('Pyrimidine_meth' %in% names(df)){
+  df<-df %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  }
+  #now create col with ratio of those two
+  if('Pyrimidine_meth' %in% names(df)&'Purine_meth' %in% names(df)){
+  df <-df %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr))
+  }
+  
+  #now create columns with modified methylation
+  if('Purine_num' %in% names(df)){
+  df<-df %>% mutate(Purine_num_mod = Purine_num + 0.01)
+  }
+  if('Pyrimidine_num' %in% names(df)){
+  df<-df %>% mutate(Pyrimidine_num_mod = Pyrimidine_num + 0.01)
+  }
+  #now create col with ratio of those two
+  if('Purine_num' %in% names(df)&'Pyrimidine_num' %in% names(df)){
+  df <-df %>% mutate(ratio_pur_pyr_num = Purine_num_mod / Pyrimidine_num_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num = log2(ratio_pur_pyr_num))
+  df <-df %>% mutate(ratio_pur_pyr_num_unmod = Purine_num / Pyrimidine_num)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num_unmod = log2(ratio_pur_pyr_num_unmod))
+  }
+  all<-bind_rows(all,df)
+  #bind
+  }
+  }
+  saveRDS(all, file=paste0("../data/processed/Annotation of genomic elements/CHH/rest/", sample_names[i], ".RDS"))
+
+  }
+```
+
+still for individyal exons/introns
+exons
+```{r}
+for(i in 1:8){
+all<-data.frame()
+  for(j in 1:21){
+  a<-readRDS(file = paste0("../data/raw_data/CHH/", sample_names[i],"_", Total_chr[j],".rds"))
+  #a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>9 & a$T<101] #filter for 10 reads might have to change to 5
+  a<-a[which(elementMetadata(a)[,"CGN_seq"]%in% chh_names)]
+  c<-find_overlaps(exons,a)
+  if(NROW(c)>0){
+  avg<- c %>% group_by(row_number) %>% summarise(avg_meth=mean(score))
+  tot<- c %>% group_by(row_number) %>% summarise(CG_num=n())
+  totl<-merge(avg, tot, by="row_number")
+  
+  #get average meth score per CGN per bin
+  e<-c %>% group_by(row_number,CGN_seq) %>% summarise(mean_meth=mean(score))
+  e<-e %>% as.tibble() %>% spread(CGN_seq,mean_meth)
+  
+  d<-c %>% mutate(pur_pyr = case_when(
+    endsWith(CGN_seq, "A") ~ "Purine",
+    endsWith(CGN_seq, "G") ~ "Purine",
+    endsWith(CGN_seq, "T") ~ "Pyrimidine",
+    endsWith(CGN_seq, "C") ~ "Pyrimidine",
+    ))
+  e_p<-d %>% group_by(row_number,pur_pyr) %>% summarise(mean_meth=mean(score))
+  e_p<-e_p %>% as.tibble()%>% spread(pur_pyr,mean_meth)
+  e<-merge(e, e_p, by="row_number")
+  
+  colnames(e)<-paste(colnames(e), "meth",sep="_" )
+  
+  #get number of each CGN per bin
+  ##e_2<-d %>% group_by(gene_id, CGN_seq) %>% summarise(count=n(), .groups = 'drop')
+  e_2<-d %>% group_by(row_number, CGN_seq) %>% summarise(count=n())
+  e_2<-e_2 %>% as.tibble()%>% spread(CGN_seq,count)
+  e_p2<-d %>% group_by(row_number,pur_pyr) %>% summarise(count=n())
+  e_p2<-e_p2 %>% as.tibble()%>% spread(pur_pyr,count)
+  e_2<-merge(e_2, e_p2, by="row_number")
+  colnames(e_2)<-paste(colnames(e_2), "num", sep = "_")
+  
+  df<-cbind(e,e_2)
+  df<-cbind(totl,df)
+  df<-df %>% as.tibble()%>% dplyr::select(-c("row_number_num","row_number_meth")) 
+  #pf<-tile.df %>% mutate(rn= row_number()) %>% filter(rn %in% e_2$bin_num)
+  #df<-cbind(df, pf) %>% select(-"rn")
+  
+  #now create columns with modified methylation
+  #test
+  if('Purine_meth' %in% names(df)){
+  df<-df %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+  }
+  if('Pyrimidine_meth' %in% names(df)){
+  df<-df %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  }
+  #now create col with ratio of those two
+  if('Pyrimidine_meth' %in% names(df)&'Purine_meth' %in% names(df)){
+  df <-df %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr))
+  }
+  
+  #now create columns with modified methylation
+  if('Purine_num' %in% names(df)){
+  df<-df %>% mutate(Purine_num_mod = Purine_num + 0.01)
+  }
+  if('Pyrimidine_num' %in% names(df)){
+  df<-df %>% mutate(Pyrimidine_num_mod = Pyrimidine_num + 0.01)
+  }
+  #now create col with ratio of those two
+  if('Purine_num' %in% names(df)&'Pyrimidine_num' %in% names(df)){
+  df <-df %>% mutate(ratio_pur_pyr_num = Purine_num_mod / Pyrimidine_num_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num = log2(ratio_pur_pyr_num))
+  df <-df %>% mutate(ratio_pur_pyr_num_unmod = Purine_num / Pyrimidine_num)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num_unmod = log2(ratio_pur_pyr_num_unmod))
+  }
+  all<-bind_rows(all,df)
+  #bind
+  }
+  }
+  saveRDS(df, file=paste0("../data/processed/Annotation of genomic elements/CHH/exons_individual/", sample_names[i], ".RDS"))
+
+  }
+```
+
+
+introns
+```{r}
+for(i in 1:8){
+all<-data.frame()
+  for(j in 1:21){
+  a<-readRDS(file = paste0("../data/raw_data/CHH/", sample_names[i],"_", Total_chr[j],".rds"))
+  #a<-a%>% as.data.frame() %>% `colnames<-`(c("seqnames", "start","end","width","strand","T","M", "CGN_seq", "score")) %>% makeGRangesFromDataFrame(keep.extra.columns = T) 
+  a<- a[a$T>9 & a$T<101] #filter for 10 reads might have to change to 5
+  a<-a[which(elementMetadata(a)[,"CGN_seq"]%in% chh_names)]
+  c<-find_overlaps(introns,a)
+  if(NROW(c)>0){
+  avg<- c %>% group_by(row_number) %>% summarise(avg_meth=mean(score))
+  tot<- c %>% group_by(row_number) %>% summarise(CG_num=n())
+  totl<-merge(avg, tot, by="row_number")
+  
+  #get average meth score per CGN per bin
+  e<-c %>% group_by(row_number,CGN_seq) %>% summarise(mean_meth=mean(score))
+  e<-e %>% as.tibble() %>% spread(CGN_seq,mean_meth)
+  
+  d<-c %>% mutate(pur_pyr = case_when(
+    endsWith(CGN_seq, "A") ~ "Purine",
+    endsWith(CGN_seq, "G") ~ "Purine",
+    endsWith(CGN_seq, "T") ~ "Pyrimidine",
+    endsWith(CGN_seq, "C") ~ "Pyrimidine",
+    ))
+  e_p<-d %>% group_by(row_number,pur_pyr) %>% summarise(mean_meth=mean(score))
+  e_p<-e_p %>% as.tibble()%>% spread(pur_pyr,mean_meth)
+  e<-merge(e, e_p, by="row_number")
+  
+  colnames(e)<-paste(colnames(e), "meth",sep="_" )
+  
+  #get number of each CGN per bin
+  ##e_2<-d %>% group_by(gene_id, CGN_seq) %>% summarise(count=n(), .groups = 'drop')
+  e_2<-d %>% group_by(row_number, CGN_seq) %>% summarise(count=n())
+  e_2<-e_2 %>% as.tibble()%>% spread(CGN_seq,count)
+  e_p2<-d %>% group_by(row_number,pur_pyr) %>% summarise(count=n())
+  e_p2<-e_p2 %>% as.tibble()%>% spread(pur_pyr,count)
+  e_2<-merge(e_2, e_p2, by="row_number")
+  colnames(e_2)<-paste(colnames(e_2), "num", sep = "_")
+  
+  df<-cbind(e,e_2)
+  df<-cbind(totl,df)
+  df<-df %>% as.tibble()%>% dplyr::select(-c("row_number_num","row_number_meth")) 
+  #pf<-tile.df %>% mutate(rn= row_number()) %>% filter(rn %in% e_2$bin_num)
+  #df<-cbind(df, pf) %>% select(-"rn")
+  
+  #now create columns with modified methylation
+  #test
+  if('Purine_meth' %in% names(df)){
+  df<-df %>% mutate(Purine_meth_mod = Purine_meth + 0.01)
+  }
+  if('Pyrimidine_meth' %in% names(df)){
+  df<-df %>% mutate(Pyrimidine_meth_mod = Pyrimidine_meth + 0.01)
+  }
+  #now create col with ratio of those two
+  if('Pyrimidine_meth' %in% names(df)&'Purine_meth' %in% names(df)){
+  df <-df %>% mutate(ratio_pur_pyr = Purine_meth_mod / Pyrimidine_meth_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log = log2(ratio_pur_pyr))
+  }
+  
+  #now create columns with modified methylation
+  if('Purine_num' %in% names(df)){
+  df<-df %>% mutate(Purine_num_mod = Purine_num + 0.01)
+  }
+  if('Pyrimidine_num' %in% names(df)){
+  df<-df %>% mutate(Pyrimidine_num_mod = Pyrimidine_num + 0.01)
+  }
+  #now create col with ratio of those two
+  if('Purine_num' %in% names(df)&'Pyrimidine_num' %in% names(df)){
+  df <-df %>% mutate(ratio_pur_pyr_num = Purine_num_mod / Pyrimidine_num_mod)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num = log2(ratio_pur_pyr_num))
+  df <-df %>% mutate(ratio_pur_pyr_num_unmod = Purine_num / Pyrimidine_num)
+  #now create col of log2 of that ratio 
+  options(scipen = 999)# to avoid scientific notation
+  df<-df %>% mutate(ratio_purpyr_log_num_unmod = log2(ratio_pur_pyr_num_unmod))
+  }
+  all<-bind_rows(all,df)
+  #bind
+  }
+  }
+  saveRDS(df, file=paste0("../data/processed/Annotation of genomic elements/CHH/introns_individual/", sample_names[i], ".RDS"))
+
+  }
+```
